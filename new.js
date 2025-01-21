@@ -217,45 +217,42 @@ document.body.appendChild(canvas);
 
 // Game objects
 const player = {
-    x: canvas.width/2 - 15,  // Center the player (half of player width)
-    y: 200,  // Start player higher
+    x: canvas.width/2 - 15,
+    y: 200,
     width: 30,
     height: 30,
-    normalHeight: 30,  // Store normal height for reference
-    squashAmount: 0,   // Track squash animation
-    squashSpeed: 0.3,  // Speed of squash recovery
-    maxSquash: 10,     // Maximum squash amount
+    normalHeight: 30,
+    squashAmount: 0,
+    squashSpeed: 0.3,
+    maxSquash: 10,
     velocityY: 0,
     velocityX: 0,
     speed: 5,
-    boostedSpeed: 12,  // Increased from 8 to 12 for more dramatic effect
-    airControl: 0.8,   // Air control factor (0-1)
-    airFriction: 0.92, // Air friction to allow stopping
+    boostedSpeed: 12,
+    airControl: 0.8,
+    airFriction: 0.92,
     jumpForce: -5,
-    superJumpForce: -19,  // Add this new property for higher jumps
+    superJumpForce: -19,
     isJumping: false,
     lastDirection: 0,
     canJump: true,
-    onSuperJumpPlatform: false,  // Add this to track if on special platform
-    onSpeedPlatform: false,  // New property to track speed boost
-    jumpMomentum: 0,  // New property to track horizontal jump momentum
-    highestY: 200,  // Track highest point reached
-    hasMoved: false,  // Track if player has moved
-    doubleJumps: 0,  // Track number of double jumps available
-    canDoubleJump: false,  // Track if can currently double jump
-    jumpKeyReleased: true,  // Track if jump key has been released since last jump
-    isCurrentJumpSuper: false,  // Track if current jump is a super jump
-    hooks: 0,  // Track number of hooks available
+    onSuperJumpPlatform: false,
+    onSpeedPlatform: false,
+    jumpMomentum: 0,
+    highestY: 200,
+    hasMoved: false,
+    doubleJumps: 0,
+    canDoubleJump: false,
+    jumpKeyReleased: true,
+    isCurrentJumpSuper: false,
+    hooks: 0,
+    counterOpacity: 0,
+    label: 'PLAYER 1',
     isHooked: false,
     hookX: 0,
     hookY: 0,
     ropeLength: 0,
-    ropeAngle: 0,
-    ropeSwingSpeed: 0,
-    ropeSegments: [],  // Store rope segments for visualization
-    activeRopes: [],    // Store all active ropes
-    counterOpacity: 0,  // Track opacity for counters fade-in
-    label: 'PLAYER 1'  // Default label, will be updated in multiplayer
+    activeRopes: []  // Array to store released ropes
 };
 
 // Physics constants
@@ -380,11 +377,22 @@ function createLandingParticles(x, y, width, force) {
 function generateNewPlatforms() {
     const playerHeight = isMultiplayer ? Math.min(player.y, otherPlayer ? otherPlayer.y : player.y) : player.y;
     if (playerHeight < highestPlatform - 300) {
-        const numPlatforms = Math.floor(Math.random() * 2) + 2; // 2-3 platforms
+        // If we're not the host, request platform generation instead of generating
+        if (isMultiplayer && !isHost) {
+            ws.send(JSON.stringify({
+                type: 'requestNewPlatforms',
+                highestPlatform: highestPlatform - platformGap,
+                generated: false
+            }));
+            return;
+        }
+
+        // Rest of the platform generation code stays the same
+        const numPlatforms = Math.floor(Math.random() * 2) + 2;
         const newPlatforms = [];
         const platformWidth = 100;
-        const minGapBetweenPlatforms = 20;  // Minimum gap between platforms
-        
+        const minGapBetweenPlatforms = 20;
+
         function isValidPosition(x, existingPlatforms) {
             for (const platform of existingPlatforms) {
                 if (Math.abs(x - platform.x) < platformWidth + minGapBetweenPlatforms) {
@@ -396,24 +404,24 @@ function generateNewPlatforms() {
 
         // Generate platforms with random positions
         for (let i = 0; i < numPlatforms; i++) {
-            let x;
+        let x;
             let attempts = 0;
             do {
                 x = Math.random() * (canvas.width - platformWidth);
                 attempts++;
             } while (!isValidPosition(x, newPlatforms) && attempts < 10);
 
-            const platform = {
-                x: x,
-                y: highestPlatform - platformGap,
+                    const platform = {
+                        x: x,
+                        y: highestPlatform - platformGap,
                 width: platformWidth,
                 height: platformWidth,
                 color: i === 0 ? '#21282B' : platformColors[Math.floor(Math.random() * 2)],
                 timer: i === 0 ? null : null,
                 countdown: i === 0 ? null : 3,
                 hookGiven: false
-            };
-            newPlatforms.push(platform);
+                    };
+                    newPlatforms.push(platform);
         }
 
         platforms.push(...newPlatforms);
@@ -485,15 +493,7 @@ function resetGame() {
     player.squashAmount = 0;
     player.height = player.normalHeight;
     player.hooks = 0;
-    player.isHooked = false;
-    player.hookX = 0;
-    player.hookY = 0;
-    player.ropeLength = 0;
-    player.ropeAngle = 0;
-    player.ropeSwingSpeed = 0;
-    player.ropeSegments = [];
-    player.activeRopes = [];
-    player.counterOpacity = 0;  // Reset counter opacity
+    player.counterOpacity = 0;  // Reset counter opacity to 0
 
     // Reset camera
     camera.y = camera.verticalOffset;
@@ -519,147 +519,48 @@ canvas.addEventListener('mousemove', (e) => {
     mouse.y = e.clientY - rect.top - camera.y;  // Adjust for camera
 });
 
-// Add after particle system
-class RopeSegment {
-    constructor(x, y, isAnchored = false) {
-        this.x = x;
-        this.y = y;
-        this.prevX = x;
-        this.prevY = y;
-        this.velocityX = 0;
-        this.velocityY = 0;
-        this.isAnchored = isAnchored;
-    }
-}
-
-class PhysicsRope {
-    constructor(segments) {
-        this.segments = segments.map((seg, index) => 
-            new RopeSegment(seg.x, seg.y, index === segments.length - 1)  // Anchor the last point
-        );
-        this.segmentLength = 10;  // Distance constraint between segments
-        this.iterations = 3;      // Physics iteration for stability
-    }
-
-    update() {
-        const gravity = 0.2;
-        const friction = 0.99;
-
-        // Apply physics to each segment
-        for (let i = 0; i < this.segments.length; i++) {
-            const segment = this.segments[i];
-            if (!segment.isAnchored) {
-                const vx = (segment.x - segment.prevX) * friction;
-                const vy = (segment.y - segment.prevY) * friction;
-                
-                segment.prevX = segment.x;
-                segment.prevY = segment.y;
-                
-                segment.x += vx;
-                segment.y += vy;
-                segment.y += gravity;
-            }
-        }
-
-        // Apply distance constraint multiple times for stability
-        for (let j = 0; j < this.iterations; j++) {
-            for (let i = 0; i < this.segments.length - 1; i++) {
-                const segmentA = this.segments[i];
-                const segmentB = this.segments[i + 1];
-                
-                const dx = segmentB.x - segmentA.x;
-                const dy = segmentB.y - segmentA.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const difference = this.segmentLength - distance;
-                const percent = difference / distance / 2;
-                const offsetX = dx * percent;
-                const offsetY = dy * percent;
-
-                if (!segmentA.isAnchored) {
-                    segmentA.x -= offsetX;
-                    segmentA.y -= offsetY;
-                }
-                if (!segmentB.isAnchored) {
-                    segmentB.x += offsetX;
-                    segmentB.y += offsetY;
-                }
-            }
-        }
-    }
-}
-
-// Modify the mousedown event handler where we add the rope to activeRopes
+// Modify the mousedown event handler for rope creation
 canvas.addEventListener('mousedown', (e) => {
     const rect = canvas.getBoundingClientRect();
     const clickX = e.clientX - rect.left;
-    const clickY = e.clientY - rect.top - camera.y;  // Adjust for camera
+    const clickY = e.clientY - rect.top - camera.y;
 
     if (player.isHooked) {
-        // Release hook and preserve momentum
-        const angle = Math.atan2(
-            (player.y + player.height/2) - player.hookY,
-            (player.x + player.width/2) - player.hookX
-        );
-        const tangentX = -Math.sin(angle);
-        const tangentY = Math.cos(angle);
-        const releaseSpeed = Math.sqrt(player.velocityX * player.velocityX + player.velocityY * player.velocityY);
-        player.velocityX = tangentX * releaseSpeed * 1.5;
-        player.velocityY = tangentY * releaseSpeed * 1.5;
-        
-        // Add current rope to active ropes as a physics rope
-        if (player.ropeSegments.length > 0) {
-            player.activeRopes.push(new PhysicsRope(player.ropeSegments));
-        }
-        
+        // Add current rope to active ropes when releasing
+        player.activeRopes.push({
+            points: Array(10).fill().map((_, i) => {
+                const t = i / 9;
+                const centerX = player.x + player.width/2;
+                const centerY = player.y + player.height/2;
+                const dx = player.hookX - centerX;
+                const dy = player.hookY - centerY;
+                return {
+                    x: centerX + dx * t,
+                    y: centerY + dy * t,
+                    velocityY: 0,
+                    isAnchored: i === 0  // Anchor the first point (hook point)
+                };
+            }),
+            hookX: player.hookX,
+            hookY: player.hookY
+        });
         player.isHooked = false;
-        player.ropeSegments = [];
-    } else if (player.hooks > 0) {
-        // Check if click is on any platform
-        let clickedPlatform = null;
-        for (const platform of platforms) {
-            if (clickX >= platform.x && 
-                clickX <= platform.x + platform.width &&
-                clickY >= platform.y && 
-                clickY <= platform.y + platform.height) {
-                clickedPlatform = platform;
-                break;
-            }
-        }
-
-        if (clickedPlatform) {
-            // Use exact click position instead of platform center
-            const hookX = clickX;
-            const hookY = clickY;
-            
-            // Calculate rope properties
-            player.hookX = hookX;
-            player.hookY = hookY;
+    } else {
+        // Create new rope
+        player.hookX = clickX;
+        player.hookY = clickY;
             player.isHooked = true;
-            player.hooks--;
-
-            // Calculate initial rope length and segments
-            const dx = hookX - (player.x + player.width/2);
-            const dy = hookY - (player.y + player.height/2);
+        
+        // Calculate initial rope length
+        const dx = clickX - (player.x + player.width/2);
+        const dy = clickY - (player.y + player.height/2);
             player.ropeLength = Math.sqrt(dx * dx + dy * dy);
-            player.ropeAngle = Math.atan2(dy, dx);
-            player.ropeSwingSpeed = 0;
-            
-            // Create rope segments for visualization
-            const numSegments = 10;
-            player.ropeSegments = [];
-            for (let i = 0; i <= numSegments; i++) {
-                player.ropeSegments.push({
-                    x: player.x + player.width/2 + (dx * i/numSegments),
-                    y: player.y + player.height/2 + (dy * i/numSegments)
-                });
-            }
-        }
     }
 });
 
 // Remove the right-click handler since we're using left-click for release
 canvas.addEventListener('contextmenu', (e) => {
-    e.preventDefault();  // Still prevent context menu
+    e.preventDefault();
 });
 
 // Add after particle system and before rope classes
@@ -884,7 +785,7 @@ function handleWebSocketMessage(data) {
                     // Keep current platform positions for host
                 }
                 player.y = 200;
-                modal.style.display = 'none';
+                    modal.style.display = 'none';
             }
             break;
             
@@ -928,15 +829,17 @@ function handleWebSocketMessage(data) {
             
         case 'platformUpdate':
             if (!isHost) {
-                const standardWidth = 800; // Standard reference width
+                const standardWidth = 800;
                 const widthRatio = canvas.width / standardWidth;
                 
-                // Adjust platform positions based on width ratio
+                // Only update if we haven't already generated platforms at this height
+                if (data.generated || data.highestPlatform > highestPlatform) {
                 platforms = data.platforms.map(platform => ({
                     ...platform,
-                    x: platform.x * widthRatio
+                        x: platform.x * widthRatio
                 }));
                 highestPlatform = data.highestPlatform;
+                }
             }
             break;
             
@@ -974,25 +877,22 @@ function handleWebSocketMessage(data) {
             break;
         case 'requestNewPlatforms':
             if (isHost) {
-                // Generate platforms at the requested height
-                const newHeight = data.highestPlatform;
-                if (newHeight < highestPlatform) {
-                    highestPlatform = newHeight;
+                // Only generate new platforms if we haven't generated any at this height yet
+                if (data.highestPlatform < highestPlatform && !data.generated) {
+                    highestPlatform = data.highestPlatform;
                     generateNewPlatforms();
-                    // Send the updated platforms to all players
+                    
+                    // Send the updated platforms to all players with a flag indicating they were generated
                     ws.send(JSON.stringify({
                         type: 'platformUpdate',
-                        platforms: platforms
+                        platforms: platforms.map(platform => ({
+                            ...platform,
+                            x: platform.x * (800 / canvas.width) // Convert to standard width
+                        })),
+                        highestPlatform: highestPlatform,
+                        generated: true
                     }));
                 }
-            }
-            break;
-        case 'ropeUpdate':
-            if (otherPlayer) {
-                otherPlayer.isHooked = data.isHooked;
-                otherPlayer.hookX = data.hookX;
-                otherPlayer.hookY = data.hookY;
-                otherPlayer.ropeSegments = data.ropeSegments;
             }
             break;
         case 'platformTimer':
@@ -1015,7 +915,6 @@ function sendPlayerUpdate() {
         const standardWidth = 800;
         const widthRatio = standardWidth / canvas.width;
         
-        // Send player position and velocity converted to standard width
         ws.send(JSON.stringify({
             type: 'playerUpdate',
             x: player.x * widthRatio,
@@ -1025,22 +924,6 @@ function sendPlayerUpdate() {
             hasMovedBefore: hasMovedInMultiplayer
         }));
 
-        // Convert rope positions to standard width
-        const standardRopeSegments = player.ropeSegments.map(segment => ({
-            x: segment.x * widthRatio,
-            y: segment.y
-        }));
-
-        // Send rope state with standardized positions
-        ws.send(JSON.stringify({
-            type: 'ropeUpdate',
-            isHooked: player.isHooked,
-            hookX: player.hookX * widthRatio,
-            hookY: player.hookY,
-            ropeSegments: standardRopeSegments
-        }));
-        
-        // Host sends platform updates with standardized positions
         if (isHost) {
             const standardPlatforms = platforms.map(platform => ({
                 ...platform,
@@ -1055,7 +938,6 @@ function sendPlayerUpdate() {
             }));
         }
 
-        // Mark as moved if any movement key is pressed
         if (!hasMovedInMultiplayer && (keys['ArrowLeft'] || keys['ArrowRight'] || keys['ArrowUp'])) {
             hasMovedInMultiplayer = true;
         }
@@ -1125,6 +1007,43 @@ function drawRope(segments, startX, startY) {
     }
 }
 
+// Add after particle system
+class SuperJumpParticle {
+    constructor(x, y, width) {
+        this.x = x + Math.random() * width;
+        this.y = y;
+        this.size = Math.random() * 4 + 3;  // Slightly larger particles
+        this.speedY = -(Math.random() * 5 + 3);  // Stronger upward velocity
+        this.speedX = (Math.random() - 0.5) * 4;  // More horizontal spread
+        this.life = 1;
+        this.decay = Math.random() * 0.02 + 0.01;  // Slower decay
+        this.gravity = 0.15;
+    }
+
+    update() {
+        this.speedY += this.gravity;
+        this.y += this.speedY;
+        this.x += this.speedX;
+        this.life -= this.decay;
+        return this.life > 0;
+    }
+
+    draw(ctx) {
+        ctx.fillStyle = '#D1D1D1';  // Changed to light gray for better visibility
+        ctx.globalAlpha = this.life;
+        ctx.fillRect(
+            Math.round(this.x),
+            Math.round(this.y),
+            Math.round(this.size),
+            Math.round(this.size)
+        );
+        ctx.globalAlpha = 1;
+    }
+}
+
+// Add to existing variables
+const superJumpParticles = [];
+
 // Game loop
 function gameLoop() {
     // Update camera position
@@ -1180,17 +1099,69 @@ function gameLoop() {
         ctx.restore();
     }
 
-    // Draw score and counters
+    // Draw score and counters before camera transform
     ctx.fillStyle = '#D1D1D1';
     ctx.font = 'bold 32px Humane';
     ctx.letterSpacing = '2px';
     ctx.textAlign = 'center';
 
+    // Draw height indicator
+    const indicatorX = 40;
+    const indicatorY = 100;
+    const indicatorHeight = 400;
+    
+    // Draw indicator background
+    ctx.fillStyle = '#2A2E2D';
+    ctx.fillRect(indicatorX - 15, indicatorY, 30, indicatorHeight);
+    
+    // Draw height marker and number
+    const heightValue = Math.max(0, Math.floor((200 - player.y) / 10));
+    const heightPercentage = Math.max(0, Math.min(1, heightValue / 100));
+    const markerY = indicatorY + (1 - heightPercentage) * indicatorHeight;
+    
+    // Draw marker line
+    ctx.fillStyle = '#D1D1D1';
+    ctx.fillRect(indicatorX - 12, markerY - 2, 24, 4);
+    
+    // Draw height number
+    ctx.font = 'bold 20px Humane';
+    ctx.fillStyle = '#D1D1D1';
+    ctx.textAlign = 'left';
+    ctx.fillText(heightValue.toString(), indicatorX + 20, markerY + 6);
+    
+    // Draw arrows with glow effect
+    const arrowSize = 12;
+    const glowSize = 20;
+    const upGlowOpacity = player.velocityY < 0 ? Math.min(1, Math.abs(player.velocityY) / 10) : 0;
+    const downGlowOpacity = player.velocityY > 0 ? Math.min(1, Math.abs(player.velocityY) / 10) : 0;
+    
+    // Draw top arrow glow
+    if (upGlowOpacity > 0) {
+        ctx.save();
+        ctx.fillStyle = '#D1D1D1';
+        ctx.globalAlpha = upGlowOpacity * 0.3;
+        ctx.beginPath();
+        ctx.arc(indicatorX, indicatorY - 10, glowSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+    
+    // Draw bottom arrow glow
+    if (downGlowOpacity > 0) {
+        ctx.save();
+        ctx.fillStyle = '#D1D1D1';
+        ctx.globalAlpha = downGlowOpacity * 0.3;
+        ctx.beginPath();
+        ctx.arc(indicatorX, indicatorY + indicatorHeight + 10, glowSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+    }
+
     // Update counter opacity
     if (player.hasMoved) {
         player.counterOpacity = Math.min(1, player.counterOpacity + 0.05);
     }
-
+    
     if (player.counterOpacity > 0) {
         // Draw score
         const heightClimbed = Math.max(0, Math.floor((200 - player.highestY) / 10));
@@ -1243,7 +1214,7 @@ function gameLoop() {
         }
     }
 
-    // Handle multiplayer updates first
+    // Draw multiplayer elements
     if (isMultiplayer) {
         sendPlayerUpdate();
 
@@ -1273,68 +1244,58 @@ function gameLoop() {
         }
     }
 
-    // Draw all active ropes
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.lineWidth = 2;
-    
-    // Update and draw previous ropes
-    player.activeRopes.forEach(rope => {
-        rope.update();  // Update physics
-        drawRope(rope.segments, rope.segments[0].x, rope.segments[0].y);
-    });
-
-    // Draw multiplayer elements
-    if (isMultiplayer) {
-        // Draw waiting message if not both players are ready
-        if (!bothPlayersReady) {
-            ctx.save();
-            ctx.fillStyle = '#D1D1D1';
-            ctx.font = 'bold 32px Humane';
-            ctx.letterSpacing = '2px';
-            ctx.textAlign = 'center';
-            ctx.fillText('WAITING FOR OTHER PLAYER', canvas.width/2, canvas.height/2);
-            ctx.restore();
-        }
-
-        // Draw other player and their rope if they exist
-        if (otherPlayer) {
-            // Draw other player's rope if they're hooked
-            if (otherPlayer.isHooked && otherPlayer.ropeSegments) {
-                ctx.strokeStyle = '#FFFFFF';
-                ctx.lineWidth = 2;
-                ctx.globalAlpha = 0.8;
-                drawRope(otherPlayer.ropeSegments, otherPlayer.x + otherPlayer.width/2, otherPlayer.y + otherPlayer.height/2);
-            }
-
-            // Draw other player
-            ctx.fillStyle = '#D1D1D1';
-            ctx.globalAlpha = 0.8;
-            ctx.fillRect(otherPlayer.x, otherPlayer.y, otherPlayer.width, otherPlayer.height);
-            
-            // Draw other player label
-            drawPlayerLabel(otherPlayer.x, otherPlayer.y, otherPlayer.label, 0.8);
-            ctx.globalAlpha = 1;
-        }
-    }
-
-    // Draw current player's rope
+    // Draw rope before drawing the player
     if (player.isHooked) {
-        ctx.strokeStyle = '#FFFFFF';
+        ctx.save();
+        ctx.strokeStyle = '#D1D1D1';
         ctx.lineWidth = 2;
-        drawRope(player.ropeSegments, player.x + player.width/2, player.y + player.height/2);
+        
+        // Calculate rope segments for dynamic movement
+        const numSegments = 10;
+        const points = [];
+        
+        for (let i = 0; i <= numSegments; i++) {
+            const t = i / numSegments;
+            const centerX = player.x + player.width/2;
+            const centerY = player.y + player.height/2;
+            
+            // Add sine wave movement based on velocity
+            const swayAmount = Math.sin(t * Math.PI) * (Math.abs(player.velocityX) * 0.5);
+            const dx = (player.hookX - centerX) * t;
+            const dy = (player.hookY - centerY) * t;
+            
+            points.push({
+                x: centerX + dx + swayAmount,
+                y: centerY + dy + Math.sin(Date.now() / 500 + t * Math.PI) * 2
+            });
+        }
+        
+        // Draw the rope
+        ctx.beginPath();
+        ctx.moveTo(points[0].x, points[0].y);
+        
+        // Use quadratic curves for smoother rope
+        for (let i = 1; i < points.length - 1; i++) {
+            const xc = (points[i].x + points[i + 1].x) / 2;
+            const yc = (points[i].y + points[i + 1].y) / 2;
+            ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+        }
+        ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+        ctx.stroke();
+        
+        ctx.restore();
     }
 
     // Draw main player
     ctx.fillStyle = '#D1D1D1';
-    // Update squash animation
     if (player.squashAmount > 0) {
         player.squashAmount = Math.max(0, player.squashAmount - player.squashSpeed);
         player.height = player.normalHeight - player.squashAmount;
     } else {
-        player.height = player.normalHeight;  // Reset height when not squashed
+        player.height = player.normalHeight;
     }
     ctx.fillRect(player.x, player.y, player.width, player.height);
-    
+
     // Draw player label in multiplayer
     if (isMultiplayer) {
         drawPlayerLabel(player.x, player.y, player.label);
@@ -1355,6 +1316,58 @@ function gameLoop() {
             }
         });
     }
+
+    // Update and draw super jump particles
+    superJumpParticles.forEach((particle, index) => {
+        if (!particle.update()) {
+            superJumpParticles.splice(index, 1);  // Remove dead particles
+        } else {
+            particle.draw(ctx);
+        }
+    });
+
+    // Update and draw released ropes
+    ctx.save();
+    ctx.strokeStyle = '#D1D1D1';
+    ctx.lineWidth = 2;
+    
+    // Update and draw each released rope
+    player.activeRopes.forEach((rope, index) => {
+        // Draw the rope
+        ctx.beginPath();
+        ctx.moveTo(rope.points[0].x, rope.points[0].y);
+        
+        // Draw each segment
+        for (let i = 1; i < rope.points.length; i++) {
+            const point = rope.points[i];
+            if (!point.isAnchored) {
+                // Apply gravity to non-anchored points
+                point.velocityY += gravity * 0.5;
+                point.y += point.velocityY;
+                
+                // Constrain distance to previous point
+                const prevPoint = rope.points[i - 1];
+                const dx = point.x - prevPoint.x;
+                const dy = point.y - prevPoint.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+                const targetDistance = 20; // Fixed segment length
+                
+                if (distance > targetDistance) {
+                    const ratio = targetDistance / distance;
+                    if (!prevPoint.isAnchored) {
+                        prevPoint.x += dx * (1 - ratio) * 0.5;
+                        prevPoint.y += dy * (1 - ratio) * 0.5;
+                    }
+                    point.x = prevPoint.x + dx * ratio;
+                    point.y = prevPoint.y + dy * ratio;
+                }
+            }
+            ctx.lineTo(point.x, point.y);
+        }
+        ctx.stroke();
+    });
+    
+    ctx.restore();
 
     // Restore canvas state
     ctx.restore();
@@ -1421,90 +1434,84 @@ function gameLoop() {
                 player.jumpMomentum = 0;
             }
         } else if (player.isJumping && player.doubleJumps > 0 && player.jumpKeyReleased) {
-            // Use the same jump force as the first jump
-            player.velocityY = player.isCurrentJumpSuper ? player.superJumpForce : (player.jumpForce * 1.2);
-            player.doubleJumps--;  // Decrease available double jumps
-            player.jumpKeyReleased = false;  // Track that jump key is being held
+            // Double jump should be super if the initial jump was from a super jump platform
+            const isDoubleJumpSuper = player.isCurrentJumpSuper;
+            player.velocityY = isDoubleJumpSuper ? player.superJumpForce : (player.jumpForce * 1.2);
+            
+            // Create super jump particles if it's a super double jump
+            if (isDoubleJumpSuper) {
+                // Create more particles with better spread
+                for (let i = 0; i < 15; i++) {
+                    const particle = new SuperJumpParticle(
+                        player.x,
+                        player.y + player.height,
+                        player.width
+                    );
+                    superJumpParticles.push(particle);
+                }
+            }
+            
+            player.doubleJumps--;
+            player.jumpKeyReleased = false;
         }
     } else {
         player.canJump = true;
-        player.jumpKeyReleased = true;  // Track that jump key has been released
+        player.jumpKeyReleased = true;
     }
 
     // Apply physics with momentum
-    player.velocityY += gravity;
+    player.velocityY += gravity;  // Always apply gravity
     
-    // Apply rope physics if hooked
-    if (player.isHooked) {
-        // Calculate distance to hook point
-        const dx = (player.x + player.width/2) - player.hookX;
-        const dy = (player.y + player.height/2) - player.hookY;
-        const distance = Math.sqrt(dx * dx + dy * dy);
+    if (!player.isHooked) {
+        player.x += player.velocityX;
+        player.y += player.velocityY;
+    } else {
+        // Apply player input for swinging
+        if (keys['ArrowLeft']) {
+            player.velocityX -= 0.3;
+        }
+        if (keys['ArrowRight']) {
+            player.velocityX += 0.3;
+        }
         
-        if (distance > player.ropeLength) {
-            // Constrain to rope length
+        // Apply air resistance
+        player.velocityX *= 0.99;
+        
+        // Update position with velocity
+        player.x += player.velocityX;
+        player.y += player.velocityY;
+        
+        // Calculate distance to hook point after movement
+        const playerCenterX = player.x + player.width/2;
+        const playerCenterY = player.y + player.height/2;
+        const dx = playerCenterX - player.hookX;
+        const dy = playerCenterY - player.hookY;
+        const currentDistance = Math.sqrt(dx * dx + dy * dy);
+        
+        // If rope is stretched, constrain to rope length
+        if (currentDistance > player.ropeLength) {
             const angle = Math.atan2(dy, dx);
             const constrainedX = player.hookX + Math.cos(angle) * player.ropeLength;
             const constrainedY = player.hookY + Math.sin(angle) * player.ropeLength;
             
-            // Update position and add some swing
+            // Move player to constrained position
             player.x = constrainedX - player.width/2;
             player.y = constrainedY - player.height/2;
             
-            // Add swinging physics with better momentum
+            // Project velocity onto rope direction
             const tangentX = -Math.sin(angle);
             const tangentY = Math.cos(angle);
-            
-            // Apply player input to swing with momentum preservation
-            let swingForce = (player.velocityX * tangentX + player.velocityY * tangentY);
-            
-            // Track previous direction for momentum boost
-            const previousDirection = Math.sign(swingForce);
-            
-            // Add force based on player input with momentum enhancement
-            if (keys['ArrowLeft']) {
-                // If changing direction from right to left, boost the force
-                if (previousDirection > 0) {
-                    swingForce = swingForce * 1.2 - 0.8;  // Boost momentum when changing direction
-                } else {
-                    swingForce -= 0.5;  // Normal force when continuing in same direction
-                }
-            }
-            if (keys['ArrowRight']) {
-                // If changing direction from left to right, boost the force
-                if (previousDirection < 0) {
-                    swingForce = swingForce * 1.2 + 0.8;  // Boost momentum when changing direction
-                } else {
-                    swingForce += 0.5;  // Normal force when continuing in same direction
-                }
-            }
-            
-            // Apply swing with very little dampening for better momentum build-up
-            swingForce *= 0.998;  // Almost no dampening (was 0.995)
-            
-            // Cap maximum swing speed
-            const maxSwingSpeed = 25;
-            swingForce = Math.max(Math.min(swingForce, maxSwingSpeed), -maxSwingSpeed);
-            
-            // Apply the swing forces
-            player.velocityX = tangentX * swingForce;
-            player.velocityY = tangentY * swingForce + gravity * 0.2;  // Even less gravity while swinging
+            const dotProduct = player.velocityX * tangentX + player.velocityY * tangentY;
+            player.velocityX = tangentX * dotProduct;
+            player.velocityY = tangentY * dotProduct;
         }
     }
-    
-    player.x += player.velocityX;
-    player.y += player.velocityY;
 
     // Screen wrapping for horizontal movement
     if (player.x + player.width < 0) {
         player.x = canvas.width;
     } else if (player.x > canvas.width) {
         player.x = -player.width;
-    }
-
-    // Reset momentum when landing
-    if (!player.isJumping) {
-        player.jumpMomentum = 0;
     }
 
     // Check if player fell off the screen (adjust for camera)
