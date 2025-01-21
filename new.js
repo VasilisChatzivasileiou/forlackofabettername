@@ -128,20 +128,32 @@ function updateCanvasSize() {
     canvas.height = 600;  // Keep fixed height
 }
 
-// Initialize platforms array first
-let platforms = [
-    { x: document.documentElement.clientWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
-    { x: document.documentElement.clientWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
-    { x: document.documentElement.clientWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
-];
+// Function to create initial platforms
+function createInitialPlatforms() {
+    return [
+        { x: canvas.width/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
+        { x: canvas.width/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
+        { x: canvas.width/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
+    ];
+}
+
+// Initialize platforms array
+let platforms = createInitialPlatforms();
 
 // Function to reset platform positions
 function resetPlatformPositions() {
-    platforms = [
-        { x: document.documentElement.clientWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
-        { x: document.documentElement.clientWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
-        { x: document.documentElement.clientWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
-    ];
+    platforms = createInitialPlatforms();
+}
+
+// Draw function for player labels
+function drawPlayerLabel(playerObj, alpha = 1) {
+    ctx.font = 'bold 24px Humane';
+    ctx.letterSpacing = '2px';
+    ctx.textAlign = 'center';
+    ctx.fillStyle = '#D1D1D1';
+    ctx.globalAlpha = alpha;
+    ctx.fillText(playerObj.label, playerObj.x + playerObj.width/2, playerObj.y - 15);
+    ctx.globalAlpha = 1;
 }
 
 // Initial size setup
@@ -489,11 +501,7 @@ function resetGame() {
     camera.y = camera.verticalOffset;
 
     // Reset platforms with exactly 10px gaps from center
-    platforms = [
-        { x: canvas.width/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
-        { x: canvas.width/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
-        { x: canvas.width/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
-    ];
+    platforms = createInitialPlatforms();
 
     // Reset highest platform tracker
     highestPlatform = 300;
@@ -1242,48 +1250,43 @@ function gameLoop() {
             ctx.fillStyle = '#D1D1D1';
             ctx.globalAlpha = 0.8;
             ctx.fillRect(otherPlayer.x, otherPlayer.y, otherPlayer.width, otherPlayer.height);
-            
-            // Draw other player label with consistent font
-            ctx.font = 'bold 24px Humane';
-            ctx.letterSpacing = '2px';
-            ctx.textAlign = 'center';
-            ctx.fillText(otherPlayer.label, otherPlayer.x + otherPlayer.width/2, otherPlayer.y - 15);
+            drawPlayerLabel(otherPlayer, 0.8);
             ctx.globalAlpha = 1;
         }
-    }
 
-    // Draw current player's rope
-    if (player.isHooked) {
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        
-        // Draw rope segments with slight curve
-        if (player.ropeSegments.length > 0) {
-            ctx.moveTo(player.x + player.width/2, player.y + player.height/2);
+        // Draw current player's rope
+        if (player.isHooked) {
+            ctx.strokeStyle = '#FFFFFF';
+            ctx.lineWidth = 2;
+            ctx.beginPath();
             
-            // Update rope segments
-            const dx = player.hookX - (player.x + player.width/2);
-            const dy = player.hookY - (player.y + player.height/2);
-            const slack = 0.1;  // Amount of rope sag
-            
-            for (let i = 0; i < player.ropeSegments.length; i++) {
-                const t = i / (player.ropeSegments.length - 1);
-                const sag = Math.sin(t * Math.PI) * slack * player.ropeLength;
+            // Draw rope segments with slight curve
+            if (player.ropeSegments.length > 0) {
+                ctx.moveTo(player.x + player.width/2, player.y + player.height/2);
                 
-                player.ropeSegments[i] = {
-                    x: player.x + player.width/2 + dx * t,
-                    y: player.y + player.height/2 + dy * t + sag
-                };
+                // Update rope segments
+                const dx = player.hookX - (player.x + player.width/2);
+                const dy = player.hookY - (player.y + player.height/2);
+                const slack = 0.1;  // Amount of rope sag
                 
-                if (i === 0) {
-                    ctx.moveTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
-                } else {
-                    ctx.lineTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
+                for (let i = 0; i < player.ropeSegments.length; i++) {
+                    const t = i / (player.ropeSegments.length - 1);
+                    const sag = Math.sin(t * Math.PI) * slack * player.ropeLength;
+                    
+                    player.ropeSegments[i] = {
+                        x: player.x + player.width/2 + dx * t,
+                        y: player.y + player.height/2 + dy * t + sag
+                    };
+                    
+                    if (i === 0) {
+                        ctx.moveTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
+                    } else {
+                        ctx.lineTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
+                    }
                 }
             }
+            ctx.stroke();
         }
-        ctx.stroke();
     }
 
     // Draw main player
@@ -1297,12 +1300,9 @@ function gameLoop() {
     }
     ctx.fillRect(player.x, player.y, player.width, player.height);
     
-    // Draw player label in multiplayer (only once)
+    // Draw player label in multiplayer
     if (isMultiplayer) {
-        ctx.font = 'bold 24px Humane';
-        ctx.letterSpacing = '2px';
-        ctx.textAlign = 'center';
-        ctx.fillText(player.label, player.x + player.width/2, player.y - 15);
+        drawPlayerLabel(player);
     }
 
     // Draw ghost players if we have previous runs and game has started
