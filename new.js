@@ -129,20 +129,34 @@ function updateCanvasSize() {
 }
 
 // Function to create initial platform configuration
-function createInitialPlatforms() {
-    return [
-        { x: document.documentElement.clientWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
-        { x: document.documentElement.clientWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
-        { x: document.documentElement.clientWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
+function createInitialPlatforms(useStandardWidth = false) {
+    const standardWidth = 800;
+    const width = useStandardWidth ? standardWidth : canvas.width;
+    
+    const platforms = [
+        { x: width/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
+        { x: width/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
+        { x: width/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
     ];
+
+    // If using standard width, convert to local width
+    if (useStandardWidth) {
+        const widthRatio = canvas.width / standardWidth;
+        platforms.forEach(platform => {
+            platform.x *= widthRatio;
+        });
+    }
+
+    return platforms;
 }
 
-// Initialize platforms array first
-let platforms = createInitialPlatforms();
+// Initialize platforms array first - use local width for single player
+let platforms = createInitialPlatforms(false);
 
 // Function to reset platform positions
 function resetPlatformPositions() {
-    platforms = createInitialPlatforms();
+    // Use standard width if in multiplayer, local width if not
+    platforms = createInitialPlatforms(isMultiplayer);
 }
 
 // Initial size setup
@@ -348,14 +362,15 @@ function createLandingParticles(x, y, width, force) {
 }
 
 function generateNewPlatforms() {
-    // Generate a new row of platforms when player gets close to highest
     const playerHeight = isMultiplayer ? Math.min(player.y, otherPlayer ? otherPlayer.y : player.y) : player.y;
     if (playerHeight < highestPlatform - 300) {
-        const numPlatforms = Math.floor(Math.random() * 2) + 2; // 2-3 platforms per row
+        const numPlatforms = Math.floor(Math.random() * 2) + 2;
         const newPlatforms = [];
         const minGapBetweenPlatforms = 20;
+        const standardWidth = 800;
+        const width = isMultiplayer ? standardWidth : canvas.width;
+        const widthRatio = canvas.width / width;
 
-        // Function to check if a position is valid (not overlapping with existing platforms)
         function isValidPosition(x, existingPlatforms) {
             for (const platform of existingPlatforms) {
                 if (Math.abs(x - platform.x) < 100 + minGapBetweenPlatforms) {
@@ -365,38 +380,38 @@ function generateNewPlatforms() {
             return true;
         }
 
-        // First, add the super-jump platform
+        // Generate platforms using standard width in multiplayer
         let x;
         do {
-            x = Math.random() * (canvas.width - 100);
+            x = Math.random() * (width - 100);
         } while (!isValidPosition(x, newPlatforms));
 
         const superJumpPlatform = {
-            x: x,
+            x: x * (isMultiplayer ? widthRatio : 1),
             y: highestPlatform - platformGap,
             width: 100,
             height: 100,
             color: '#21282B'
         };
         newPlatforms.push(superJumpPlatform);
-        
-        // Then add the remaining regular platforms
+
+        // Generate remaining platforms
         for (let i = 1; i < numPlatforms; i++) {
             let attempts = 0;
             let validPositionFound = false;
             
             while (!validPositionFound && attempts < 10) {
-                x = Math.random() * (canvas.width - 100);
+                x = Math.random() * (width - 100);
                 if (isValidPosition(x, newPlatforms)) {
                     const platform = {
-                        x: x,
+                        x: x * (isMultiplayer ? widthRatio : 1),
                         y: highestPlatform - platformGap,
                         width: 100,
                         height: 100,
                         color: platformColors[Math.floor(Math.random() * 2)],
                         timer: null,
                         countdown: 3,
-                        hookGiven: false  // Add hookGiven property for blue-gray platforms
+                        hookGiven: false
                     };
                     newPlatforms.push(platform);
                     validPositionFound = true;
@@ -405,9 +420,7 @@ function generateNewPlatforms() {
             }
         }
 
-        // Add all valid new platforms to the game
         platforms.push(...newPlatforms);
-        
         highestPlatform -= platformGap;
 
         // Remove platforms that are too far below
@@ -489,8 +502,8 @@ function resetGame() {
     // Reset camera
     camera.y = camera.verticalOffset;
 
-    // Reset platforms with exactly 10px gaps from center
-    platforms = createInitialPlatforms();
+    // Reset platforms using standard width if in multiplayer
+    platforms = createInitialPlatforms(isMultiplayer);
 
     // Reset highest platform tracker
     highestPlatform = 300;
@@ -858,17 +871,22 @@ function handleWebSocketMessage(data) {
                 // Set player labels based on host status
                 player.label = isHost ? 'PLAYER 1' : 'PLAYER 2';
                 
-                // Fixed starting positions regardless of screen width
-                const centerX = 800; // Standard reference width
+                const standardWidth = 800;
+                const widthRatio = canvas.width / standardWidth;
+                
                 if (!isHost) {
-                    player.x = centerX/2 + 45;  // Spawn slightly to the right
+                    // Guest spawns slightly to the right
+                    player.x = (standardWidth/2 + 45) * widthRatio;
                     // Request initial platform positions from host
                     ws.send(JSON.stringify({
                         type: 'requestInitialState',
                         screenWidth: canvas.width
                     }));
                 } else {
-                    player.x = centerX/2 - 45;  // Spawn slightly to the left
+                    // Host spawns slightly to the left
+                    player.x = (standardWidth/2 - 45) * widthRatio;
+                    // Reset platforms using standard width
+                    platforms = createInitialPlatforms(true);
                 }
                 player.y = 200;
                 modal.style.display = 'none';
@@ -877,22 +895,15 @@ function handleWebSocketMessage(data) {
             
         case 'requestInitialState':
             if (isHost) {
-                const guestScreenWidth = data.screenWidth;
-                const standardWidth = 800; // Standard reference width
-                
-                // Create platforms based on standard width
-                const standardPlatforms = [
-                    { x: standardWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
-                    { x: standardWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
-                    { x: standardWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
-                ];
+                // Create platforms using standard width
+                const standardPlatforms = createInitialPlatforms(true);
                 
                 // Send standard platform positions
                 ws.send(JSON.stringify({
                     type: 'initialState',
                     platforms: standardPlatforms,
                     highestPlatform: highestPlatform,
-                    standardWidth: standardWidth
+                    standardWidth: 800
                 }));
             }
             break;
