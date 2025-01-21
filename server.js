@@ -1,11 +1,25 @@
 const WebSocket = require('ws');
-const server = new WebSocket.Server({ port: 3000 });
+const express = require('express');
+const path = require('path');
+const app = express();
+const port = process.env.PORT || 3000;
 
-// Store active rooms and their players
-const rooms = new Map();
+// Serve static files from the root directory
+app.use(express.static(path.join(__dirname)));
 
-server.on('connection', (ws) => {
-    let playerRoom = null;
+// Start HTTP server
+const server = app.listen(port, () => {
+    console.log(`HTTP server is running on port ${port}`);
+});
+
+// Create WebSocket server attached to the HTTP server
+const wss = new WebSocket.Server({ server });
+
+// Store active games
+const games = new Map();
+
+wss.on('connection', (ws) => {
+    let playerGame = null;
     let playerId = null;
 
     ws.on('message', (message) => {
@@ -13,147 +27,81 @@ server.on('connection', (ws) => {
 
         switch (data.type) {
             case 'join':
-                // Check if room exists
-                if (rooms.has(data.code)) {
-                    // Join existing room if it has only one player
-                    const room = rooms.get(data.code);
-                    if (room.players.length < 2) {
-                        playerId = 'player2';
-                        playerRoom = data.code;
-                        room.players.push({ ws, id: playerId });
-                        
-                        // Notify both players about successful join
-                        room.players.forEach(player => {
-                            player.ws.send(JSON.stringify({
-                                type: 'join',
-                                success: true,
-                                isHost: player.id === 'player1',
-                                playerId: player.id
-                            }));
-                        });
-                    }
-                } else {
-                    // Create new room
-                    playerId = 'player1';
-                    playerRoom = data.code;
-                    rooms.set(data.code, {
-                        players: [{ ws, id: playerId }],
-                        playerStates: { player1: false, player2: false },
-                        platforms: []  // Store platform states
+                // Handle player joining a game
+                const code = data.code.toUpperCase();
+                
+                if (!games.has(code)) {
+                    // Create new game if code doesn't exist
+                    games.set(code, {
+                        host: ws,
+                        hostId: Math.random().toString(),
+                        guest: null,
+                        guestId: null
                     });
+                    playerGame = code;
+                    playerId = games.get(code).hostId;
                     ws.send(JSON.stringify({
                         type: 'join',
                         success: true,
                         isHost: true,
-                        playerId
+                        playerId: playerId
+                    }));
+                } else if (!games.get(code).guest) {
+                    // Join existing game if there's space
+                    const game = games.get(code);
+                    game.guest = ws;
+                    game.guestId = Math.random().toString();
+                    playerGame = code;
+                    playerId = game.guestId;
+                    
+                    // Notify both players
+                    ws.send(JSON.stringify({
+                        type: 'join',
+                        success: true,
+                        isHost: false,
+                        playerId: playerId
+                    }));
+                    
+                    // Send ready state to both players
+                    game.host.send(JSON.stringify({
+                        type: 'readyState',
+                        bothPlayersReady: true
+                    }));
+                    game.guest.send(JSON.stringify({
+                        type: 'readyState',
+                        bothPlayersReady: true
                     }));
                 }
                 break;
 
-            case 'platformUpdate':
-                if (playerRoom && rooms.has(playerRoom)) {
-                    const room = rooms.get(playerRoom);
-                    room.platforms = data.platforms;  // Update platform state
-                    
-                    // Send platform state to other player
-                    room.players.forEach(player => {
-                        if (player.id !== playerId) {
-                            player.ws.send(JSON.stringify({
-                                type: 'platformUpdate',
-                                platforms: data.platforms
-                            }));
-                        }
-                    });
-                }
-                break;
-
-            case 'ropeUpdate':
-                if (playerRoom && rooms.has(playerRoom)) {
-                    const room = rooms.get(playerRoom);
-                    // Forward rope state to other player
-                    room.players.forEach(player => {
-                        if (player.id !== playerId) {
-                            player.ws.send(JSON.stringify({
-                                type: 'ropeUpdate',
-                                isHooked: data.isHooked,
-                                hookX: data.hookX,
-                                hookY: data.hookY,
-                                ropeSegments: data.ropeSegments
-                            }));
-                        }
-                    });
-                }
-                break;
-
             case 'playerUpdate':
-                if (playerRoom && rooms.has(playerRoom)) {
-                    const room = rooms.get(playerRoom);
-                    
-                    // Update player's ready state if this is their first move
-                    if (data.hasMovedBefore && !room.playerStates[playerId]) {
-                        room.playerStates[playerId] = true;
-                        
-                        // Check if both players have moved
-                        const bothPlayersReady = room.playerStates.player1 && room.playerStates.player2;
-                        
-                        // Send ready state update to all players
-                        room.players.forEach(player => {
-                            player.ws.send(JSON.stringify({
-                                type: 'readyState',
-                                bothPlayersReady,
-                                playerStates: room.playerStates
-                            }));
-                        });
+            case 'platformUpdate':
+            case 'ropeUpdate':
+                // Forward updates to other player if in a game
+                if (playerGame && games.has(playerGame)) {
+                    const game = games.get(playerGame);
+                    const otherPlayer = ws === game.host ? game.guest : game.host;
+                    if (otherPlayer) {
+                        otherPlayer.send(message.toString());
                     }
-
-                    // Forward position to other player regardless of ready state
-                    room.players.forEach(player => {
-                        if (player.id !== playerId) {
-                            player.ws.send(JSON.stringify({
-                                type: 'playerUpdate',
-                                x: data.x,
-                                y: data.y,
-                                velocityX: data.velocityX,
-                                velocityY: data.velocityY,
-                                playerId
-                            }));
-                        }
-                    });
-                }
-                break;
-
-            case 'requestNewPlatforms':
-                if (playerRoom && rooms.has(playerRoom)) {
-                    const room = rooms.get(playerRoom);
-                    // Forward the request to the host
-                    room.players.forEach(player => {
-                        if (player.id === 'player1') {  // Send only to host
-                            player.ws.send(JSON.stringify({
-                                type: 'requestNewPlatforms',
-                                highestPlatform: data.highestPlatform
-                            }));
-                        }
-                    });
                 }
                 break;
         }
     });
 
     ws.on('close', () => {
-        if (playerRoom && rooms.has(playerRoom)) {
-            const room = rooms.get(playerRoom);
-            // Remove player from room
-            room.players = room.players.filter(player => player.ws !== ws);
-            // Notify other player about disconnect
-            room.players.forEach(player => {
-                player.ws.send(JSON.stringify({
+        // Clean up when a player disconnects
+        if (playerGame && games.has(playerGame)) {
+            const game = games.get(playerGame);
+            const otherPlayer = ws === game.host ? game.guest : game.host;
+            
+            if (otherPlayer) {
+                otherPlayer.send(JSON.stringify({
                     type: 'playerDisconnect'
                 }));
-            });
-            // Remove room if empty
-            if (room.players.length === 0) {
-                rooms.delete(playerRoom);
             }
+            
+            games.delete(playerGame);
         }
     });
 }); 

@@ -740,10 +740,10 @@ let hasMovedInMultiplayer = false;
 
 // Add server configuration
 const SERVER_CONFIG = {
-    // Change this URL when deploying to your server
-    WS_URL: 'ws://localhost:3000'  // For local development
-    // Example for production:
-    // WS_URL: 'wss://your-server-url.com'  // Use 'wss://' for secure WebSocket
+    // Change this to your Glitch project URL when deployed
+    WS_URL: window.location.hostname === 'localhost' 
+        ? 'ws://localhost:3000'
+        : `wss://${window.location.hostname}`
 };
 
 function initializeWebSocket() {
