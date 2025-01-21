@@ -569,12 +569,12 @@ canvas.addEventListener('mousedown', (e) => {
         // Create new rope
         player.hookX = clickX;
         player.hookY = clickY;
-        player.isHooked = true;
+            player.isHooked = true;
         
         // Calculate initial rope length
         const dx = clickX - (player.x + player.width/2);
         const dy = clickY - (player.y + player.height/2);
-        player.ropeLength = Math.sqrt(dx * dx + dy * dy);
+            player.ropeLength = Math.sqrt(dx * dx + dy * dy);
     }
 });
 
@@ -1064,6 +1064,45 @@ class SuperJumpParticle {
 // Add to existing variables
 const superJumpParticles = [];
 
+// Add after particle system classes
+class Raindrop {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;  // This will now be relative to camera
+        this.speed = 7 + Math.random() * 5;
+        this.length = 10 + Math.random() * 5;
+        this.angle = Math.PI * 0.25;
+        this.width = 1;
+    }
+
+    update() {
+        this.x += Math.cos(this.angle) * this.speed;
+        this.y += Math.sin(this.angle) * this.speed;
+        // Check bounds relative to camera position
+        return this.y < camera.y + canvas.height + 100;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.strokeStyle = '#D1D1D1';
+        ctx.globalAlpha = 0.4;
+        ctx.lineWidth = this.width;
+        ctx.beginPath();
+        // Draw relative to camera position
+        ctx.moveTo(this.x, this.y - camera.y);
+        ctx.lineTo(
+            this.x - Math.cos(this.angle) * this.length,
+            this.y - Math.sin(this.angle) * this.length - camera.y
+        );
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+// Add to existing variables
+const raindrops = [];
+const RAIN_DENSITY = 12; // Increased density to compensate for wider angle
+
 // Game loop
 function gameLoop() {
     // Update camera position
@@ -1193,7 +1232,7 @@ function gameLoop() {
         ctx.lineTo(indicatorX, indicatorY + indicatorHeight + 25);
         ctx.closePath();
         ctx.fill();
-        ctx.restore();
+    ctx.restore();
     }
     
     // Draw bottom arrow base shape
@@ -1678,6 +1717,26 @@ function gameLoop() {
         player.hasMoved = true;
     }
 
+    // Spawn new raindrops
+    for (let i = 0; i < RAIN_DENSITY; i++) {
+        const x = Math.random() * (canvas.width + 2400) - 1200;
+        // Spawn relative to camera position
+        const y = camera.y - 100;
+        raindrops.push(new Raindrop(x, y));
+    }
+
+    // Update and draw raindrops
+    raindrops.forEach((drop, index) => {
+        if (!drop.update() || 
+            drop.y > camera.y + canvas.height + 100 || 
+            drop.x < -1200 || 
+            drop.x > canvas.width + 1200) {
+            raindrops.splice(index, 1);
+            return;
+        }
+        drop.draw(ctx);
+    });
+
     requestAnimationFrame(gameLoop);
 }
 
@@ -1690,4 +1749,28 @@ function checkPlayerCollision(player1, player2) {
            player1.x + player1.width > player2.x &&
            player1.y < player2.y + player2.height &&
            player1.y + player1.height > player2.y;
+}
+
+// Add this helper function for better collision detection
+function lineIntersectsRect(x1, y1, x2, y2, rectX, rectY, rectWidth, rectHeight) {
+    // Check intersection with each edge of the rectangle
+    return (
+        lineIntersectsLine(x1, y1, x2, y2, rectX, rectY, rectX + rectWidth, rectY) || // Top
+        lineIntersectsLine(x1, y1, x2, y2, rectX, rectY + rectHeight, rectX + rectWidth, rectY + rectHeight) || // Bottom
+        lineIntersectsLine(x1, y1, x2, y2, rectX, rectY, rectX, rectY + rectHeight) || // Left
+        lineIntersectsLine(x1, y1, x2, y2, rectX + rectWidth, rectY, rectX + rectWidth, rectY + rectHeight) // Right
+    );
+}
+
+function lineIntersectsLine(x1, y1, x2, y2, x3, y3, x4, y4) {
+    // Calculate the denominator
+    const den = (x1 - x2) * (y3 - y4) - (y1 - y2) * (x3 - x4);
+    if (den === 0) return false;
+    
+    // Calculate intersection point
+    const t = ((x1 - x3) * (y3 - y4) - (y1 - y3) * (x3 - x4)) / den;
+    const u = -((x1 - x2) * (y1 - y3) - (y1 - y2) * (x1 - x3)) / den;
+    
+    // Check if intersection point lies on both line segments
+    return t >= 0 && t <= 1 && u >= 0 && u <= 1;
 }
