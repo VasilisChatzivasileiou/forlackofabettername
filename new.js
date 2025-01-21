@@ -140,31 +140,24 @@ function createInitialPlatforms() {
     const startX = Math.round((canvas.width - totalWidth) / 2);  // Round to avoid subpixel rendering
     
     return [
-        { 
-            x: startX, 
-            y: 300, 
-            width: platformWidth, 
-            height: platformWidth, 
-            color: '#79312D', 
-            timer: null, 
-            countdown: 3 
-        },
-        { 
-            x: startX + platformWidth + gapBetweenPlatforms, 
-            y: 300, 
-            width: platformWidth, 
-            height: platformWidth, 
-            color: '#273D3E', 
-            hookGiven: false 
-        },
-        { 
-            x: startX + (platformWidth + gapBetweenPlatforms) * 2, 
-            y: 300, 
-            width: platformWidth, 
-            height: platformWidth, 
-            color: '#21282B' 
-        }
+        createPlatform(startX, 300, platformWidth, '#79312D', true),
+        createPlatform(startX + platformWidth + gapBetweenPlatforms, 300, platformWidth, '#273D3E'),
+        createPlatform(startX + (platformWidth + gapBetweenPlatforms) * 2, 300, platformWidth, '#21282B')
     ];
+}
+
+// Helper function to create a platform with consistent properties
+function createPlatform(x, y, width, color, isDisappearing = false) {
+    return {
+        x: x,
+        y: y,
+        width: width,
+        height: width,
+        color: color,
+        timer: isDisappearing ? null : undefined,
+        countdown: isDisappearing ? 3 : undefined,
+        hookGiven: false
+    };
 }
 
 // Initialize platforms array
@@ -1090,6 +1083,36 @@ function drawPlayerLabel(x, y, label, opacity = 1) {
     ctx.restore();
 }
 
+// Helper function to draw platform countdown
+function drawPlatformCountdown(platform) {
+    if (platform.color === '#79312D' && platform.timer !== null) {
+        ctx.save();
+        ctx.fillStyle = '#D1D1D1';
+        ctx.font = 'bold 64px Humane';
+        ctx.letterSpacing = '2px';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(
+            Math.ceil(platform.countdown), 
+            platform.x + platform.width/2, 
+            platform.y + platform.height/2
+        );
+        ctx.restore();
+    }
+}
+
+// Helper function to draw a rope
+function drawRope(segments, startX, startY) {
+    if (segments && segments.length > 0) {
+        ctx.beginPath();
+        ctx.moveTo(startX, startY);
+        segments.forEach(segment => {
+            ctx.lineTo(segment.x, segment.y);
+        });
+        ctx.stroke();
+    }
+}
+
 // Game loop
 function gameLoop() {
     // Update camera position
@@ -1179,26 +1202,10 @@ function gameLoop() {
 
     // Draw platforms with camera offset
     platforms.forEach(platform => {
-        // Only draw if platform hasn't disappeared
         if (platform.countdown > 0 || platform.color !== '#79312D') {
             ctx.fillStyle = platform.color;
             ctx.fillRect(platform.x, platform.y, platform.width, platform.height);
-            
-            // Draw countdown for red platforms that are active
-            if (platform.color === '#79312D' && platform.timer !== null) {
-                ctx.save();
-                ctx.fillStyle = '#D1D1D1';  // Changed from white
-                ctx.font = 'bold 64px Humane';
-                ctx.letterSpacing = '2px';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(
-                    Math.ceil(platform.countdown), 
-                    platform.x + platform.width/2, 
-                    platform.y + platform.height/2
-                );
-                ctx.restore();
-            }
+            drawPlatformCountdown(platform);
         }
     });
 
@@ -1261,15 +1268,7 @@ function gameLoop() {
     // Update and draw previous ropes
     player.activeRopes.forEach(rope => {
         rope.update();  // Update physics
-        
-        ctx.beginPath();
-        if (rope.segments.length > 0) {
-            ctx.moveTo(rope.segments[0].x, rope.segments[0].y);
-            for (let i = 1; i < rope.segments.length; i++) {
-                ctx.lineTo(rope.segments[i].x, rope.segments[i].y);
-            }
-        }
-        ctx.stroke();
+        drawRope(rope.segments, rope.segments[0].x, rope.segments[0].y);
     });
 
     // Draw multiplayer elements
@@ -1292,15 +1291,7 @@ function gameLoop() {
                 ctx.strokeStyle = '#FFFFFF';
                 ctx.lineWidth = 2;
                 ctx.globalAlpha = 0.8;
-                ctx.beginPath();
-                
-                if (otherPlayer.ropeSegments.length > 0) {
-                    ctx.moveTo(otherPlayer.x + otherPlayer.width/2, otherPlayer.y + otherPlayer.height/2);
-                    otherPlayer.ropeSegments.forEach(segment => {
-                        ctx.lineTo(segment.x, segment.y);
-                    });
-                }
-                ctx.stroke();
+                drawRope(otherPlayer.ropeSegments, otherPlayer.x + otherPlayer.width/2, otherPlayer.y + otherPlayer.height/2);
             }
 
             // Draw other player
@@ -1318,34 +1309,7 @@ function gameLoop() {
     if (player.isHooked) {
         ctx.strokeStyle = '#FFFFFF';
         ctx.lineWidth = 2;
-        ctx.beginPath();
-        
-        // Draw rope segments with slight curve
-        if (player.ropeSegments.length > 0) {
-            ctx.moveTo(player.x + player.width/2, player.y + player.height/2);
-            
-            // Update rope segments
-            const dx = player.hookX - (player.x + player.width/2);
-            const dy = player.hookY - (player.y + player.height/2);
-            const slack = 0.1;  // Amount of rope sag
-            
-            for (let i = 0; i < player.ropeSegments.length; i++) {
-                const t = i / (player.ropeSegments.length - 1);
-                const sag = Math.sin(t * Math.PI) * slack * player.ropeLength;
-                
-                player.ropeSegments[i] = {
-                    x: player.x + player.width/2 + dx * t,
-                    y: player.y + player.height/2 + dy * t + sag
-                };
-                
-                if (i === 0) {
-                    ctx.moveTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
-                } else {
-                    ctx.lineTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
-                }
-            }
-        }
-        ctx.stroke();
+        drawRope(player.ropeSegments, player.x + player.width/2, player.y + player.height/2);
     }
 
     // Draw main player
