@@ -740,7 +740,6 @@ let hasMovedInMultiplayer = false;
 
 // Add server configuration
 const SERVER_CONFIG = {
-    // Change this to your Glitch project URL when deployed
     WS_URL: window.location.hostname === 'localhost' 
         ? 'ws://localhost:3000'
         : `wss://${window.location.hostname}`
