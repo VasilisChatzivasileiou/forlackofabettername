@@ -864,30 +864,32 @@ function handleWebSocketMessage(data) {
                 if (!isHost) {
                     // Request initial platform positions from host
                     ws.send(JSON.stringify({
-                        type: 'requestInitialState'
+                        type: 'requestInitialState',
+                        screenWidth: canvas.width
                     }));
                     player.x = canvas.width/2 + 45;  // Spawn slightly to the right
-                    player.y = 200;
                 } else {
-                    // Send current platform positions to guest
-                    ws.send(JSON.stringify({
-                        type: 'initialState',
-                        platforms: platforms,
-                        highestPlatform: highestPlatform,
-                        centerX: canvas.width / 2
-                    }));
-                    modal.style.display = 'none';
+                    player.x = canvas.width/2 - 45;  // Spawn slightly to the left
                 }
-                console.log(isHost ? 'Game created' : 'Joined game');
+                player.y = 200;
+                modal.style.display = 'none';
             }
             break;
             
-        // Add these new cases
         case 'requestInitialState':
             if (isHost) {
+                const guestScreenWidth = data.screenWidth;
+                const widthRatio = guestScreenWidth / canvas.width;
+                
+                // Adjust platform positions for guest's screen width
+                const adjustedPlatforms = platforms.map(platform => ({
+                    ...platform,
+                    x: (platform.x - canvas.width/2) * widthRatio + guestScreenWidth/2
+                }));
+                
                 ws.send(JSON.stringify({
                     type: 'initialState',
-                    platforms: platforms,
+                    platforms: adjustedPlatforms,
                     highestPlatform: highestPlatform
                 }));
             }
@@ -897,28 +899,16 @@ function handleWebSocketMessage(data) {
             if (!isHost) {
                 platforms = data.platforms;
                 highestPlatform = data.highestPlatform;
-                
-                // Recalculate platform positions based on our screen width
-                const hostCenterX = data.centerX; // We'll add this in host's message
-                const myCenterX = canvas.width / 2;
-                const offsetX = myCenterX - hostCenterX;
-                
-                platforms.forEach(platform => {
-                    platform.x += offsetX;
-                });
             }
             break;
             
-        // Existing cases...
         case 'platformUpdate':
             if (!isHost) {
-                const hostCenterX = data.centerX;
-                const myCenterX = canvas.width / 2;
-                const offsetX = myCenterX - hostCenterX;
-                
+                // Adjust incoming platform positions based on screen width ratio
+                const widthRatio = canvas.width / data.hostScreenWidth;
                 platforms = data.platforms.map(platform => ({
                     ...platform,
-                    x: platform.x + offsetX
+                    x: (platform.x - data.hostScreenWidth/2) * widthRatio + canvas.width/2
                 }));
                 highestPlatform = data.highestPlatform;
             }
@@ -999,13 +989,13 @@ function sendPlayerUpdate() {
             ropeSegments: player.ropeSegments
         }));
         
-        // Host sends platform updates
+        // Host sends platform updates with screen width
         if (isHost) {
             ws.send(JSON.stringify({
                 type: 'platformUpdate',
                 platforms: platforms,
                 highestPlatform: highestPlatform,
-                centerX: canvas.width / 2
+                hostScreenWidth: canvas.width
             }));
         }
 
@@ -1244,14 +1234,6 @@ function gameLoop() {
         ctx.stroke();
     }
 
-    // Draw player with camera offset
-    ctx.fillStyle = '#D1D1D1';  // New color for player
-    // Update squash animation
-    if (player.squashAmount > 0) {
-        player.squashAmount = Math.max(0, player.squashAmount - player.squashSpeed);
-        player.height = player.normalHeight - player.squashAmount;
-    }
-    
     // Draw player and handle multiplayer drawing in one place
     ctx.save();
     if (isMultiplayer) {
@@ -1286,6 +1268,11 @@ function gameLoop() {
             ctx.fillStyle = '#D1D1D1';
             ctx.globalAlpha = 0.8;
             ctx.fillRect(otherPlayer.x, otherPlayer.y, otherPlayer.width, otherPlayer.height);
+            
+            // Draw other player label with consistent font
+            ctx.font = 'bold 24px Humane';
+            ctx.letterSpacing = '2px';
+            ctx.textAlign = 'center';
             ctx.fillText(otherPlayer.label, otherPlayer.x + otherPlayer.width/2, otherPlayer.y - 15);
             ctx.globalAlpha = 1;
         }
@@ -1295,9 +1282,10 @@ function gameLoop() {
     ctx.fillStyle = '#D1D1D1';
     ctx.fillRect(player.x, player.y, player.width, player.height);
     
-    // Draw player label in multiplayer
+    // Draw player label in multiplayer (only once)
     if (isMultiplayer) {
-        ctx.font = '24px Humane';
+        ctx.font = 'bold 24px Humane';
+        ctx.letterSpacing = '2px';
         ctx.textAlign = 'center';
         ctx.fillText(player.label, player.x + player.width/2, player.y - 15);
     }
@@ -1579,15 +1567,6 @@ function gameLoop() {
                 }
             }
         }
-
-        // Draw player label
-        ctx.save();
-        ctx.translate(0, camera.y);
-        ctx.fillStyle = '#D1D1D1';
-        ctx.font = 'bold 16px Humane';
-        ctx.textAlign = 'center';
-        ctx.fillText(player.label, player.x + player.width/2, player.y - 10);
-        ctx.restore();
     }
 
     requestAnimationFrame(gameLoop);
