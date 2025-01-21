@@ -873,7 +873,8 @@ function handleWebSocketMessage(data) {
                     ws.send(JSON.stringify({
                         type: 'initialState',
                         platforms: platforms,
-                        highestPlatform: highestPlatform
+                        highestPlatform: highestPlatform,
+                        centerX: canvas.width / 2
                     }));
                     modal.style.display = 'none';
                 }
@@ -896,10 +897,14 @@ function handleWebSocketMessage(data) {
             if (!isHost) {
                 platforms = data.platforms;
                 highestPlatform = data.highestPlatform;
-                // Adjust platform positions for guest's screen width
-                const widthRatio = canvas.width / document.documentElement.clientWidth;
+                
+                // Recalculate platform positions based on our screen width
+                const hostCenterX = data.centerX; // We'll add this in host's message
+                const myCenterX = canvas.width / 2;
+                const offsetX = myCenterX - hostCenterX;
+                
                 platforms.forEach(platform => {
-                    platform.x = platform.x * widthRatio;
+                    platform.x += offsetX;
                 });
             }
             break;
@@ -907,13 +912,15 @@ function handleWebSocketMessage(data) {
         // Existing cases...
         case 'platformUpdate':
             if (!isHost) {
-                const oldPlatforms = [...platforms];
-                platforms = data.platforms;
-                // Adjust platform positions for guest's screen width
-                const widthRatio = canvas.width / document.documentElement.clientWidth;
-                platforms.forEach(platform => {
-                    platform.x = platform.x * widthRatio;
-                });
+                const hostCenterX = data.centerX;
+                const myCenterX = canvas.width / 2;
+                const offsetX = myCenterX - hostCenterX;
+                
+                platforms = data.platforms.map(platform => ({
+                    ...platform,
+                    x: platform.x + offsetX
+                }));
+                highestPlatform = data.highestPlatform;
             }
             break;
         case 'readyState':
@@ -997,7 +1004,8 @@ function sendPlayerUpdate() {
             ws.send(JSON.stringify({
                 type: 'platformUpdate',
                 platforms: platforms,
-                highestPlatform: highestPlatform
+                highestPlatform: highestPlatform,
+                centerX: canvas.width / 2
             }));
         }
 
@@ -1243,7 +1251,57 @@ function gameLoop() {
         player.squashAmount = Math.max(0, player.squashAmount - player.squashSpeed);
         player.height = player.normalHeight - player.squashAmount;
     }
+    
+    // Draw player and handle multiplayer drawing in one place
+    ctx.save();
+    if (isMultiplayer) {
+        // Draw waiting message if not both players are ready
+        if (!bothPlayersReady) {
+            ctx.fillStyle = '#D1D1D1';
+            ctx.font = 'bold 32px Humane';
+            ctx.letterSpacing = '2px';
+            ctx.textAlign = 'center';
+            ctx.fillText('WAITING FOR OTHER PLAYER', canvas.width/2, canvas.height/2);
+        }
+
+        // Draw other player and their rope if they exist
+        if (otherPlayer) {
+            // Draw other player's rope if they're hooked
+            if (otherPlayer.isHooked && otherPlayer.ropeSegments) {
+                ctx.strokeStyle = '#FFFFFF';
+                ctx.lineWidth = 2;
+                ctx.globalAlpha = 0.8;
+                ctx.beginPath();
+                
+                if (otherPlayer.ropeSegments.length > 0) {
+                    ctx.moveTo(otherPlayer.x + otherPlayer.width/2, otherPlayer.y + otherPlayer.height/2);
+                    otherPlayer.ropeSegments.forEach(segment => {
+                        ctx.lineTo(segment.x, segment.y);
+                    });
+                }
+                ctx.stroke();
+            }
+
+            // Draw other player
+            ctx.fillStyle = '#D1D1D1';
+            ctx.globalAlpha = 0.8;
+            ctx.fillRect(otherPlayer.x, otherPlayer.y, otherPlayer.width, otherPlayer.height);
+            ctx.fillText(otherPlayer.label, otherPlayer.x + otherPlayer.width/2, otherPlayer.y - 15);
+            ctx.globalAlpha = 1;
+        }
+    }
+
+    // Draw main player
+    ctx.fillStyle = '#D1D1D1';
     ctx.fillRect(player.x, player.y, player.width, player.height);
+    
+    // Draw player label in multiplayer
+    if (isMultiplayer) {
+        ctx.font = '24px Humane';
+        ctx.textAlign = 'center';
+        ctx.fillText(player.label, player.x + player.width/2, player.y - 15);
+    }
+    ctx.restore();
 
     // Restore canvas state
     ctx.restore();
@@ -1497,45 +1555,6 @@ function gameLoop() {
     if (isMultiplayer) {
         sendPlayerUpdate();
 
-        // Draw waiting message if not both players are ready
-        if (!bothPlayersReady) {
-            ctx.save();
-            ctx.fillStyle = '#D1D1D1';
-            ctx.font = 'bold 32px Humane';
-            ctx.letterSpacing = '2px';
-            ctx.textAlign = 'center';
-            ctx.fillText('WAITING FOR OTHER PLAYER', canvas.width/2, canvas.height/2);
-            ctx.restore();
-        }
-
-        // Always draw other player and their rope if they exist
-        if (otherPlayer) {
-            ctx.save();
-            ctx.translate(0, camera.y);
-            
-            // Draw other player's rope if they're hooked
-            if (otherPlayer.isHooked && otherPlayer.ropeSegments) {
-                ctx.strokeStyle = '#FFFFFF';
-                ctx.lineWidth = 2;
-                ctx.globalAlpha = 0.8;
-                ctx.beginPath();
-                
-                if (otherPlayer.ropeSegments.length > 0) {
-                    ctx.moveTo(otherPlayer.x + otherPlayer.width/2, otherPlayer.y + otherPlayer.height/2);
-                    otherPlayer.ropeSegments.forEach(segment => {
-                        ctx.lineTo(segment.x, segment.y);
-                    });
-                }
-                ctx.stroke();
-            }
-
-            // Draw other player
-            ctx.fillStyle = '#D1D1D1';
-            ctx.globalAlpha = 0.8;
-            ctx.fillRect(otherPlayer.x, otherPlayer.y, otherPlayer.width, otherPlayer.height);
-            ctx.restore();
-        }
-
         // Handle player collision
         if (otherPlayer && bothPlayersReady) {
             if (checkPlayerCollision(player, otherPlayer)) {
@@ -1568,11 +1587,6 @@ function gameLoop() {
         ctx.font = 'bold 16px Humane';
         ctx.textAlign = 'center';
         ctx.fillText(player.label, player.x + player.width/2, player.y - 10);
-
-        // Draw other player label if they exist
-        if (otherPlayer) {
-            ctx.fillText(otherPlayer.label, otherPlayer.x + otherPlayer.width/2, otherPlayer.y - 10);
-        }
         ctx.restore();
     }
 
