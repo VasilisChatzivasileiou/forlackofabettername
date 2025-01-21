@@ -885,8 +885,8 @@ function handleWebSocketMessage(data) {
                 } else {
                     // Host spawns slightly to the left
                     player.x = (standardWidth/2 - 45) * widthRatio;
-                    // Reset platforms using standard width
-                    platforms = createInitialPlatforms(true);
+                    // For host, keep current platform positions but mark as multiplayer
+                    isMultiplayer = true;
                 }
                 player.y = 200;
                 modal.style.display = 'none';
@@ -895,15 +895,20 @@ function handleWebSocketMessage(data) {
             
         case 'requestInitialState':
             if (isHost) {
-                // Create platforms using standard width
-                const standardPlatforms = createInitialPlatforms(true);
+                // Send current platform positions converted to standard width
+                const standardWidth = 800;
+                const widthRatio = standardWidth / canvas.width;
                 
-                // Send standard platform positions
+                const standardPlatforms = platforms.map(platform => ({
+                    ...platform,
+                    x: platform.x * widthRatio
+                }));
+                
                 ws.send(JSON.stringify({
                     type: 'initialState',
                     platforms: standardPlatforms,
                     highestPlatform: highestPlatform,
-                    standardWidth: 800
+                    standardWidth: standardWidth
                 }));
             }
             break;
