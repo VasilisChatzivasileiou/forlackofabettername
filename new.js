@@ -1043,10 +1043,11 @@ function gameLoop() {
     // Update highest point reached
     player.highestY = Math.min(player.y, player.highestY);
 
-    // Draw birds that should appear behind the title
+    // Draw title and score before camera transform
     if (!player.hasMoved) {
+        // Draw birds behind title
         ctx.save();
-        ctx.translate(0, camera.y);  // Apply camera transform for birds
+        ctx.translate(0, camera.y);
         for (let i = birds.length - 1; i >= 0; i--) {
             const bird = birds[i];
             if (bird.isBehindTitle) {
@@ -1054,30 +1055,18 @@ function gameLoop() {
             }
         }
         ctx.restore();
-    }
-    
-    // Draw high score at start, fade out when game starts
-    ctx.save();
-    ctx.fillStyle = '#D1D1D1';  // Changed from #FFFFFF
-    ctx.font = 'bold 32px Humane';
-    ctx.letterSpacing = '2px';
-    ctx.textAlign = 'center';
-    
-    // Draw title before game starts
-    if (!player.hasMoved) {
+
+        // Draw title
         ctx.fillStyle = '#D1D1D1';
         ctx.font = '900 164px Humane';
         ctx.letterSpacing = '0px';
-        const titleY = canvas.height * 0.2;  // Position at 20% of canvas height
+        ctx.textAlign = 'center';
+        const titleY = canvas.height * 0.2;
         ctx.fillText('FOR LACK OF A BETTER NAME', canvas.width/2, titleY);
-        ctx.fillStyle = '#D1D1D1';
-        ctx.letterSpacing = '2px';
-    }
 
-    // Draw birds that should appear in front of the title
-    if (!player.hasMoved) {
+        // Draw birds in front of title
         ctx.save();
-        ctx.translate(0, camera.y);  // Apply camera transform for birds
+        ctx.translate(0, camera.y);
         for (let i = birds.length - 1; i >= 0; i--) {
             const bird = birds[i];
             if (!bird.isBehindTitle) {
@@ -1088,48 +1077,38 @@ function gameLoop() {
     } else {
         // Draw all birds when game has started
         ctx.save();
-        ctx.translate(0, camera.y);  // Apply camera transform for birds
-        for (let i = birds.length - 1; i >= 0; i--) {
-            birds[i].draw(ctx);
-        }
+        ctx.translate(0, camera.y);
+        birds.forEach(bird => bird.draw(ctx));
         ctx.restore();
     }
 
-    // Draw score (height climbed)
-    const heightClimbed = Math.max(0, Math.floor((200 - player.highestY) / 10));
-    
-    // Draw score with fade-in effect
-    if (player.counterOpacity > 0) {
-        ctx.globalAlpha = player.counterOpacity;
-        ctx.fillText(`SCORE: ${heightClimbed}`, canvas.width/2, 30);
-    }
-    
-    // Draw high score only after game starts
-    if (player.hasMoved) {
-        ctx.globalAlpha = player.counterOpacity;  // Fade in with other counters
-        ctx.fillText(`HIGH SCORE: ${highScore}`, canvas.width/2, 60);
-    }
-    ctx.restore();
+    // Draw score and counters
+    ctx.fillStyle = '#D1D1D1';
+    ctx.font = 'bold 32px Humane';
+    ctx.letterSpacing = '2px';
+    ctx.textAlign = 'center';
 
-    // Draw double jumps and hooks counters at bottom middle
+    // Update counter opacity
     if (player.hasMoved) {
-        // Fade in the counters
         player.counterOpacity = Math.min(1, player.counterOpacity + 0.05);
     }
-    
+
     if (player.counterOpacity > 0) {
-        ctx.save();
-        ctx.fillStyle = '#D1D1D1';  // Changed from #FFFFFF
+        // Draw score
+        const heightClimbed = Math.max(0, Math.floor((200 - player.highestY) / 10));
         ctx.globalAlpha = player.counterOpacity;
-        ctx.font = 'bold 32px Humane';
-        ctx.letterSpacing = '2px';
-        ctx.textAlign = 'center';
+        ctx.fillText(`SCORE: ${heightClimbed}`, canvas.width/2, 30);
+
+        // Draw high score
+        ctx.fillText(`HIGH SCORE: ${highScore}`, canvas.width/2, 60);
+
+        // Draw counters at bottom
         ctx.fillText(`DOUBLE-JUMPS: ${player.doubleJumps}`, canvas.width/2 - 100, canvas.height - 30);
         ctx.fillText(`HOOKS: ${player.hooks}`, canvas.width/2 + 100, canvas.height - 30);
-        ctx.restore();
+        ctx.globalAlpha = 1;
     }
 
-    // Save the current canvas state
+    // Save the current canvas state for game elements
     ctx.save();
     
     // Apply camera transform
@@ -1169,8 +1148,7 @@ function gameLoop() {
         }
     });
 
-    // Update birds
-    // Spawn new birds
+    // Update and spawn birds
     if (birds.length < maxBirds && Math.random() < birdSpawnChance) {
         birds.push(new Bird());
     }
@@ -1179,8 +1157,37 @@ function gameLoop() {
     for (let i = birds.length - 1; i >= 0; i--) {
         const bird = birds[i];
         if (!bird.update()) {
-            // Remove birds that have gone offscreen
             birds.splice(i, 1);
+        }
+    }
+
+    // Handle multiplayer updates first
+    if (isMultiplayer) {
+        sendPlayerUpdate();
+
+        // Handle player collision before drawing
+        if (otherPlayer && bothPlayersReady) {
+            if (checkPlayerCollision(player, otherPlayer)) {
+                // Calculate collision response
+                const dx = (player.x + player.width/2) - (otherPlayer.x + otherPlayer.width/2);
+                const dy = (player.y + player.height/2) - (otherPlayer.y + otherPlayer.height/2);
+                
+                // Normalize the direction
+                const length = Math.sqrt(dx * dx + dy * dy);
+                const normalX = dx / length;
+                const normalY = dy / length;
+                
+                // Apply bounce effect
+                const bounceForce = 8;
+                player.velocityX = normalX * bounceForce;
+                player.velocityY = normalY * bounceForce;
+                
+                // Move players apart to prevent sticking
+                const overlap = (player.width + otherPlayer.width)/2 - Math.abs(dx);
+                if (overlap > 0) {
+                    player.x += normalX * overlap/2;
+                }
+            }
         }
     }
 
@@ -1201,41 +1208,8 @@ function gameLoop() {
         }
         ctx.stroke();
     });
-    
-    // Draw current rope if hooked
-    if (player.isHooked) {
-        ctx.beginPath();
-        
-        // Draw rope segments with slight curve
-        if (player.ropeSegments.length > 0) {
-            ctx.moveTo(player.x + player.width/2, player.y + player.height/2);
-            
-            // Update rope segments
-            const dx = player.hookX - (player.x + player.width/2);
-            const dy = player.hookY - (player.y + player.height/2);
-            const slack = 0.1;  // Amount of rope sag
-            
-            for (let i = 0; i < player.ropeSegments.length; i++) {
-                const t = i / (player.ropeSegments.length - 1);
-                const sag = Math.sin(t * Math.PI) * slack * player.ropeLength;
-                
-                player.ropeSegments[i] = {
-                    x: player.x + player.width/2 + dx * t,
-                    y: player.y + player.height/2 + dy * t + sag
-                };
-                
-                if (i === 0) {
-                    ctx.moveTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
-                } else {
-                    ctx.lineTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
-                }
-            }
-        }
-        ctx.stroke();
-    }
 
-    // Draw player and handle multiplayer drawing in one place
-    ctx.save();
+    // Draw multiplayer elements
     if (isMultiplayer) {
         // Draw waiting message if not both players are ready
         if (!bothPlayersReady) {
@@ -1278,6 +1252,40 @@ function gameLoop() {
         }
     }
 
+    // Draw current player's rope
+    if (player.isHooked) {
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        // Draw rope segments with slight curve
+        if (player.ropeSegments.length > 0) {
+            ctx.moveTo(player.x + player.width/2, player.y + player.height/2);
+            
+            // Update rope segments
+            const dx = player.hookX - (player.x + player.width/2);
+            const dy = player.hookY - (player.y + player.height/2);
+            const slack = 0.1;  // Amount of rope sag
+            
+            for (let i = 0; i < player.ropeSegments.length; i++) {
+                const t = i / (player.ropeSegments.length - 1);
+                const sag = Math.sin(t * Math.PI) * slack * player.ropeLength;
+                
+                player.ropeSegments[i] = {
+                    x: player.x + player.width/2 + dx * t,
+                    y: player.y + player.height/2 + dy * t + sag
+                };
+                
+                if (i === 0) {
+                    ctx.moveTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
+                } else {
+                    ctx.lineTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
+                }
+            }
+        }
+        ctx.stroke();
+    }
+
     // Draw main player
     ctx.fillStyle = '#D1D1D1';
     // Update squash animation
@@ -1296,20 +1304,26 @@ function gameLoop() {
         ctx.textAlign = 'center';
         ctx.fillText(player.label, player.x + player.width/2, player.y - 15);
     }
-    ctx.restore();
+
+    // Draw ghost players if we have previous runs and game has started
+    if (allPreviousRuns.length > 0 && player.hasMoved) {
+        // Draw each ghost with decreasing opacity (older runs are more transparent)
+        allPreviousRuns.forEach((run, index) => {
+            const opacity = 0.5 - (index * 0.08);  // Decrease opacity for older runs
+            if (opacity > 0 && ghostReplayFrames[index] < run.length) {
+                ctx.fillStyle = '#D1D1D1';
+                ctx.globalAlpha = opacity;
+                
+                const ghostPos = run[ghostReplayFrames[index]];
+                ctx.fillRect(ghostPos.x, ghostPos.y, ghostPos.width, ghostPos.height);
+                ghostReplayFrames[index]++;
+            }
+        });
+    }
 
     // Restore canvas state
     ctx.restore();
 
-    // Generate new platforms
-    generateNewPlatforms();
-
-    // Update hasMoved flag in input handling
-    if (keys['ArrowLeft'] || keys['ArrowRight'] || keys['ArrowUp']) {
-        player.hasMoved = true;
-    }
-
-    // Rest of game logic (movement, collision, etc)
     // Handle input
     if (keys['ArrowLeft'] && keys['ArrowRight']) {
         player.lastDirection = 0;
@@ -1525,55 +1539,12 @@ function gameLoop() {
         });
     }
 
-    // Draw all ghost players if we have previous runs and game has started
-    if (allPreviousRuns.length > 0 && player.hasMoved) {
-        ctx.save();
-        ctx.translate(0, camera.y);
-        
-        // Draw each ghost with decreasing opacity (older runs are more transparent)
-        allPreviousRuns.forEach((run, index) => {
-            const opacity = 0.5 - (index * 0.08);  // Decrease opacity for older runs
-            if (opacity > 0 && ghostReplayFrames[index] < run.length) {
-                ctx.fillStyle = '#D1D1D1';
-                ctx.globalAlpha = opacity;
-                
-                const ghostPos = run[ghostReplayFrames[index]];
-                ctx.fillRect(ghostPos.x, ghostPos.y, ghostPos.width, ghostPos.height);
-                ghostReplayFrames[index]++;
-            }
-        });
+    // Generate new platforms
+    generateNewPlatforms();
 
-        ctx.restore();
-    }
-
-    // Handle multiplayer
-    if (isMultiplayer) {
-        sendPlayerUpdate();
-
-        // Handle player collision
-        if (otherPlayer && bothPlayersReady) {
-            if (checkPlayerCollision(player, otherPlayer)) {
-                // Calculate collision response
-                const dx = (player.x + player.width/2) - (otherPlayer.x + otherPlayer.width/2);
-                const dy = (player.y + player.height/2) - (otherPlayer.y + otherPlayer.height/2);
-                
-                // Normalize the direction
-                const length = Math.sqrt(dx * dx + dy * dy);
-                const normalX = dx / length;
-                const normalY = dy / length;
-                
-                // Apply bounce effect
-                const bounceForce = 8;
-                player.velocityX = normalX * bounceForce;
-                player.velocityY = normalY * bounceForce;
-                
-                // Move players apart to prevent sticking
-                const overlap = (player.width + otherPlayer.width)/2 - Math.abs(dx);
-                if (overlap > 0) {
-                    player.x += normalX * overlap/2;
-                }
-            }
-        }
+    // Update hasMoved flag in input handling
+    if (keys['ArrowLeft'] || keys['ArrowRight'] || keys['ArrowUp']) {
+        player.hasMoved = true;
     }
 
     requestAnimationFrame(gameLoop);
