@@ -867,20 +867,20 @@ function handleWebSocketMessage(data) {
                 // Set player labels based on host status
                 player.label = isHost ? 'PLAYER 1' : 'PLAYER 2';
                 
-                const standardWidth = 800;
-                const widthRatio = canvas.width / standardWidth;
+                // Reset player position to center for both host and guest
+                player.x = canvas.width/2 - player.width/2;
                 
                 if (!isHost) {
-                    // Guest spawns slightly to the right
-                    player.x = (standardWidth/2 + 45) * widthRatio;
+                    // Guest moves slightly to the right after centering
+                    player.x += 45;
                     // Request initial platform positions from host
                     ws.send(JSON.stringify({
                         type: 'requestInitialState',
                         screenWidth: canvas.width
                     }));
                 } else {
-                    // Host spawns slightly to the left
-                    player.x = (standardWidth/2 - 45) * widthRatio;
+                    // Host moves slightly to the left after centering
+                    player.x -= 45;
                     // Keep current platform positions for host
                 }
                 player.y = 200;
@@ -993,6 +993,18 @@ function handleWebSocketMessage(data) {
                 otherPlayer.hookX = data.hookX;
                 otherPlayer.hookY = data.hookY;
                 otherPlayer.ropeSegments = data.ropeSegments;
+            }
+            break;
+        case 'platformTimer':
+            if (!isHost) {
+                const platform = platforms.find(p => 
+                    p.x === data.platformX && 
+                    p.y === data.platformY
+                );
+                if (platform) {
+                    platform.timer = data.timer;
+                    platform.countdown = data.countdown;
+                }
             }
             break;
     }
@@ -1516,25 +1528,36 @@ function gameLoop() {
             if (impactForce > 2) {  // Only squash on significant impacts
                 player.squashAmount = Math.min(player.maxSquash, impactForce * 1.5);
                 player.height = player.normalHeight - player.squashAmount;
-                createLandingParticles(player.x, player.y, player.width, impactForce);  // Add particles on impact
+                createLandingParticles(player.x, player.y, player.width, impactForce);
             }
             
             player.y = platform.y - player.height;
             player.velocityY = 0;
             player.isJumping = false;
-            player.canDoubleJump = false;  // Reset double jump ability when landing
+            player.canDoubleJump = false;
             player.onSuperJumpPlatform = (platform.color === '#21282B');
             player.onSpeedPlatform = (platform.color === '#273D3E');
 
             // Start timer for red platforms and add double jump
             if (platform.color === '#79312D' && platform.timer === null) {
                 platform.timer = Date.now();
-                player.doubleJumps++;  // Increment double jumps when touching red platform
+                player.doubleJumps++;
+
+                // In multiplayer, host sends timer start to other player
+                if (isMultiplayer && isHost) {
+                    ws.send(JSON.stringify({
+                        type: 'platformTimer',
+                        platformX: platform.x,
+                        platformY: platform.y,
+                        timer: platform.timer,
+                        countdown: platform.countdown
+                    }));
+                }
             }
             // Add hook when touching blue-gray platform
             if (platform.color === '#273D3E' && !platform.hookGiven) {
-                player.hooks++;  // Increment hooks when touching blue-gray platform
-                platform.hookGiven = true;  // Mark that this platform has given its hook
+                player.hooks++;
+                platform.hookGiven = true;
             }
         }
     }
@@ -1547,8 +1570,19 @@ function gameLoop() {
     // Update platform timers
     platforms.forEach(platform => {
         if (platform.color === '#79312D' && platform.timer !== null) {
-            const elapsed = (Date.now() - platform.timer) / 1000; // Convert to seconds
+            const elapsed = (Date.now() - platform.timer) / 1000;
             platform.countdown = Math.max(3 - elapsed, 0);
+            
+            // In multiplayer, host regularly syncs timer state
+            if (isMultiplayer && isHost && platform.countdown > 0) {
+                ws.send(JSON.stringify({
+                    type: 'platformTimer',
+                    platformX: platform.x,
+                    platformY: platform.y,
+                    timer: platform.timer,
+                    countdown: platform.countdown
+                }));
+            }
         }
     });
 
