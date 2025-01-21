@@ -858,15 +858,17 @@ function handleWebSocketMessage(data) {
                 // Set player labels based on host status
                 player.label = isHost ? 'PLAYER 1' : 'PLAYER 2';
                 
+                // Fixed starting positions regardless of screen width
+                const centerX = 800; // Standard reference width
                 if (!isHost) {
+                    player.x = centerX/2 + 45;  // Spawn slightly to the right
                     // Request initial platform positions from host
                     ws.send(JSON.stringify({
                         type: 'requestInitialState',
                         screenWidth: canvas.width
                     }));
-                    player.x = canvas.width/2 + 45;  // Spawn slightly to the right
                 } else {
-                    player.x = canvas.width/2 - 45;  // Spawn slightly to the left
+                    player.x = centerX/2 - 45;  // Spawn slightly to the left
                 }
                 player.y = 200;
                 modal.style.display = 'none';
@@ -876,44 +878,57 @@ function handleWebSocketMessage(data) {
         case 'requestInitialState':
             if (isHost) {
                 const guestScreenWidth = data.screenWidth;
-                const widthRatio = guestScreenWidth / canvas.width;
+                const standardWidth = 800; // Standard reference width
                 
-                // Adjust platform positions for guest's screen width
-                const adjustedPlatforms = platforms.map(platform => ({
-                    ...platform,
-                    x: (platform.x - canvas.width/2) * widthRatio + guestScreenWidth/2
-                }));
+                // Create platforms based on standard width
+                const standardPlatforms = [
+                    { x: standardWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
+                    { x: standardWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
+                    { x: standardWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
+                ];
                 
+                // Send standard platform positions
                 ws.send(JSON.stringify({
                     type: 'initialState',
-                    platforms: adjustedPlatforms,
-                    highestPlatform: highestPlatform
+                    platforms: standardPlatforms,
+                    highestPlatform: highestPlatform,
+                    standardWidth: standardWidth
                 }));
             }
             break;
             
         case 'initialState':
             if (!isHost) {
-                platforms = data.platforms;
+                const standardWidth = data.standardWidth;
+                const widthRatio = canvas.width / standardWidth;
+                
+                // Adjust platform positions based on width ratio
+                platforms = data.platforms.map(platform => ({
+                    ...platform,
+                    x: platform.x * widthRatio
+                }));
+                
+                // Adjust player position based on width ratio
+                player.x = player.x * widthRatio;
+                
                 highestPlatform = data.highestPlatform;
             }
             break;
             
         case 'platformUpdate':
             if (!isHost) {
-                // Adjust incoming platform positions based on screen width ratio
-                const widthRatio = canvas.width / data.hostScreenWidth;
+                const standardWidth = 800; // Standard reference width
+                const widthRatio = canvas.width / standardWidth;
+                
+                // Adjust platform positions based on width ratio
                 platforms = data.platforms.map(platform => ({
                     ...platform,
-                    x: (platform.x - data.hostScreenWidth/2) * widthRatio + canvas.width/2
+                    x: platform.x * widthRatio
                 }));
                 highestPlatform = data.highestPlatform;
             }
             break;
-        case 'readyState':
-            bothPlayersReady = data.bothPlayersReady;
-            console.log('Ready state updated:', bothPlayersReady);  // Debug log
-            break;
+            
         case 'playerUpdate':
             if (otherPlayer === null) {
                 otherPlayer = {
@@ -923,14 +938,21 @@ function handleWebSocketMessage(data) {
                     height: 30,
                     velocityX: data.velocityX,
                     velocityY: data.velocityY,
-                    label: isHost ? 'PLAYER 2' : 'PLAYER 1'  // Set opposite label
+                    label: isHost ? 'PLAYER 2' : 'PLAYER 1'
                 };
             } else {
-                otherPlayer.x = data.x;
+                // Convert positions based on screen width ratio
+                const standardWidth = 800;
+                const widthRatio = canvas.width / standardWidth;
+                otherPlayer.x = data.x * widthRatio;
                 otherPlayer.y = data.y;
-                otherPlayer.velocityX = data.velocityX;
+                otherPlayer.velocityX = data.velocityX * widthRatio;
                 otherPlayer.velocityY = data.velocityY;
             }
+            break;
+        case 'readyState':
+            bothPlayersReady = data.bothPlayersReady;
+            console.log('Ready state updated:', bothPlayersReady);  // Debug log
             break;
         case 'playerDisconnect':
             isMultiplayer = false;
@@ -967,32 +989,46 @@ function handleWebSocketMessage(data) {
 
 function sendPlayerUpdate() {
     if (ws && ws.readyState === WebSocket.OPEN && isMultiplayer) {
-        // Send player position and velocity
+        const standardWidth = 800;
+        const widthRatio = standardWidth / canvas.width;
+        
+        // Send player position and velocity converted to standard width
         ws.send(JSON.stringify({
             type: 'playerUpdate',
-            x: player.x,
+            x: player.x * widthRatio,
             y: player.y,
-            velocityX: player.velocityX,
+            velocityX: player.velocityX * widthRatio,
             velocityY: player.velocityY,
             hasMovedBefore: hasMovedInMultiplayer
         }));
 
-        // Always send rope state
+        // Convert rope positions to standard width
+        const standardRopeSegments = player.ropeSegments.map(segment => ({
+            x: segment.x * widthRatio,
+            y: segment.y
+        }));
+
+        // Send rope state with standardized positions
         ws.send(JSON.stringify({
             type: 'ropeUpdate',
             isHooked: player.isHooked,
-            hookX: player.hookX,
+            hookX: player.hookX * widthRatio,
             hookY: player.hookY,
-            ropeSegments: player.ropeSegments
+            ropeSegments: standardRopeSegments
         }));
         
-        // Host sends platform updates with screen width
+        // Host sends platform updates with standardized positions
         if (isHost) {
+            const standardPlatforms = platforms.map(platform => ({
+                ...platform,
+                x: platform.x * widthRatio
+            }));
+            
             ws.send(JSON.stringify({
                 type: 'platformUpdate',
-                platforms: platforms,
+                platforms: standardPlatforms,
                 highestPlatform: highestPlatform,
-                hostScreenWidth: canvas.width
+                standardWidth: standardWidth
             }));
         }
 
