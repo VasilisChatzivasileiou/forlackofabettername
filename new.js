@@ -1280,6 +1280,13 @@ function gameLoop() {
 
     // Draw main player
     ctx.fillStyle = '#D1D1D1';
+    // Update squash animation
+    if (player.squashAmount > 0) {
+        player.squashAmount = Math.max(0, player.squashAmount - player.squashSpeed);
+        player.height = player.normalHeight - player.squashAmount;
+    } else {
+        player.height = player.normalHeight;  // Reset height when not squashed
+    }
     ctx.fillRect(player.x, player.y, player.width, player.height);
     
     // Draw player label in multiplayer (only once)
