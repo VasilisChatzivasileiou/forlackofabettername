@@ -526,35 +526,55 @@ canvas.addEventListener('mousedown', (e) => {
     const clickY = e.clientY - rect.top - camera.y;
 
     if (player.isHooked) {
-        // Add current rope to active ropes when releasing
-        player.activeRopes.push({
-            points: Array(10).fill().map((_, i) => {
-                const t = i / 9;
-                const centerX = player.x + player.width/2;
-                const centerY = player.y + player.height/2;
-                const dx = player.hookX - centerX;
-                const dy = player.hookY - centerY;
-                return {
-                    x: centerX + dx * t,
-                    y: centerY + dy * t,
-                    velocityY: 0,
-                    isAnchored: i === 0  // Anchor the first point (hook point)
-                };
-            }),
-            hookX: player.hookX,
-            hookY: player.hookY
+        // Store the current rope before releasing
+        const numSegments = 10;
+        const centerX = player.x + player.width/2;
+        const centerY = player.y + player.height/2;
+        const dx = centerX - player.hookX;
+        const dy = centerY - player.hookY;
+        const totalLength = Math.sqrt(dx * dx + dy * dy);
+        const segmentLength = totalLength / numSegments;
+        
+        const points = [];
+        // Add hook point (stays fixed)
+        points.push({
+            x: player.hookX,
+            y: player.hookY,
+            velocityY: 0,
+            velocityX: 0,
+            isAnchored: true
         });
+        
+        // Add points along the rope's length
+        for (let i = 1; i <= numSegments; i++) {
+            const t = i / numSegments;
+            points.push({
+                x: player.hookX + dx * t,
+                y: player.hookY + dy * t,
+                velocityY: 0,
+                velocityX: 0,
+                isAnchored: false
+            });
+        }
+        
+        player.activeRopes.push({
+            points: points,
+            segmentLength: segmentLength,
+            totalLength: totalLength,  // Store the total rope length
+            windOffset: Math.random() * Math.PI * 2  // Random wind phase offset
+        });
+        
         player.isHooked = false;
     } else {
         // Create new rope
         player.hookX = clickX;
         player.hookY = clickY;
-            player.isHooked = true;
+        player.isHooked = true;
         
         // Calculate initial rope length
         const dx = clickX - (player.x + player.width/2);
         const dy = clickY - (player.y + player.height/2);
-            player.ropeLength = Math.sqrt(dx * dx + dy * dy);
+        player.ropeLength = Math.sqrt(dx * dx + dy * dy);
     }
 });
 
@@ -1119,43 +1139,71 @@ function gameLoop() {
     const heightPercentage = Math.max(0, Math.min(1, heightValue / 100));
     const markerY = indicatorY + (1 - heightPercentage) * indicatorHeight;
     
-    // Draw marker line
+    // Draw marker line and number
     ctx.fillStyle = '#D1D1D1';
     ctx.fillRect(indicatorX - 12, markerY - 2, 24, 4);
-    
-    // Draw height number
     ctx.font = 'bold 20px Humane';
-    ctx.fillStyle = '#D1D1D1';
     ctx.textAlign = 'left';
     ctx.fillText(heightValue.toString(), indicatorX + 20, markerY + 6);
     
     // Draw arrows with glow effect
     const arrowSize = 12;
-    const glowSize = 20;
     const upGlowOpacity = player.velocityY < 0 ? Math.min(1, Math.abs(player.velocityY) / 10) : 0;
     const downGlowOpacity = player.velocityY > 0 ? Math.min(1, Math.abs(player.velocityY) / 10) : 0;
     
-    // Draw top arrow glow
+    // Draw top arrow with glow
     if (upGlowOpacity > 0) {
+        // Draw glow effect
         ctx.save();
+        ctx.shadowColor = '#D1D1D1';
+        ctx.shadowBlur = 15;
         ctx.fillStyle = '#D1D1D1';
-        ctx.globalAlpha = upGlowOpacity * 0.3;
+        
+        // Draw arrow shape
         ctx.beginPath();
-        ctx.arc(indicatorX, indicatorY - 10, glowSize, 0, Math.PI * 2);
+        ctx.moveTo(indicatorX - arrowSize, indicatorY - 5);
+        ctx.lineTo(indicatorX + arrowSize, indicatorY - 5);
+        ctx.lineTo(indicatorX, indicatorY - 25);
+        ctx.closePath();
         ctx.fill();
         ctx.restore();
     }
     
-    // Draw bottom arrow glow
+    // Draw top arrow base shape
+    ctx.beginPath();
+    ctx.moveTo(indicatorX - arrowSize, indicatorY - 5);
+    ctx.lineTo(indicatorX + arrowSize, indicatorY - 5);
+    ctx.lineTo(indicatorX, indicatorY - 25);
+    ctx.closePath();
+    ctx.fillStyle = player.velocityY < 0 ? '#D1D1D1' : '#2A2E2D';
+    ctx.fill();
+    
+    // Draw bottom arrow with glow
     if (downGlowOpacity > 0) {
+        // Draw glow effect
         ctx.save();
+        ctx.shadowColor = '#D1D1D1';
+        ctx.shadowBlur = 15;
         ctx.fillStyle = '#D1D1D1';
-        ctx.globalAlpha = downGlowOpacity * 0.3;
+        
+        // Draw arrow shape
         ctx.beginPath();
-        ctx.arc(indicatorX, indicatorY + indicatorHeight + 10, glowSize, 0, Math.PI * 2);
+        ctx.moveTo(indicatorX - arrowSize, indicatorY + indicatorHeight + 5);
+        ctx.lineTo(indicatorX + arrowSize, indicatorY + indicatorHeight + 5);
+        ctx.lineTo(indicatorX, indicatorY + indicatorHeight + 25);
+        ctx.closePath();
         ctx.fill();
         ctx.restore();
     }
+    
+    // Draw bottom arrow base shape
+    ctx.beginPath();
+    ctx.moveTo(indicatorX - arrowSize, indicatorY + indicatorHeight + 5);
+    ctx.lineTo(indicatorX + arrowSize, indicatorY + indicatorHeight + 5);
+    ctx.lineTo(indicatorX, indicatorY + indicatorHeight + 25);
+    ctx.closePath();
+    ctx.fillStyle = player.velocityY > 0 ? '#D1D1D1' : '#2A2E2D';
+    ctx.fill();
 
     // Update counter opacity
     if (player.hasMoved) {
@@ -1333,37 +1381,56 @@ function gameLoop() {
     
     // Update and draw each released rope
     player.activeRopes.forEach((rope, index) => {
-        // Draw the rope
+        const time = Date.now() / 1000;
+        const windStrength = 0.02;
+        
+        // Multiple iterations to maintain rope length
+        for (let iteration = 0; iteration < 5; iteration++) {
+            // Start from the anchor point and work down
+            for (let i = 1; i < rope.points.length; i++) {
+                const point = rope.points[i];
+                const prevPoint = rope.points[i - 1];
+                
+                if (!point.isAnchored) {
+                    if (iteration === 0) {
+                        // Apply gravity and wind only on first iteration
+                        point.velocityY += gravity * 0.5;
+                        point.y += point.velocityY;
+                        
+                        // Apply wind effect - stronger at the end of the rope
+                        const windPhase = time + rope.windOffset;
+                        const windEffect = Math.sin(windPhase * 0.8) * windStrength * (i / rope.points.length) * 3;
+                        const secondaryWind = Math.cos(windPhase * 1.2 + i * 0.2) * windStrength * (i / rope.points.length);
+                        point.velocityX = (point.velocityX || 0) * 0.98 + windEffect + secondaryWind;
+                        point.x += point.velocityX;
+                    }
+                    
+                    // Strictly maintain rope length
+                    const dx = point.x - prevPoint.x;
+                    const dy = point.y - prevPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance !== rope.segmentLength) {
+                        const ratio = rope.segmentLength / distance;
+                        point.x = prevPoint.x + dx * ratio;
+                        point.y = prevPoint.y + dy * ratio;
+                    }
+                }
+            }
+        }
+        
+        // Draw the rope with smooth curves
         ctx.beginPath();
         ctx.moveTo(rope.points[0].x, rope.points[0].y);
         
-        // Draw each segment
-        for (let i = 1; i < rope.points.length; i++) {
-            const point = rope.points[i];
-            if (!point.isAnchored) {
-                // Apply gravity to non-anchored points
-                point.velocityY += gravity * 0.5;
-                point.y += point.velocityY;
-                
-                // Constrain distance to previous point
-                const prevPoint = rope.points[i - 1];
-                const dx = point.x - prevPoint.x;
-                const dy = point.y - prevPoint.y;
-                const distance = Math.sqrt(dx * dx + dy * dy);
-                const targetDistance = 20; // Fixed segment length
-                
-                if (distance > targetDistance) {
-                    const ratio = targetDistance / distance;
-                    if (!prevPoint.isAnchored) {
-                        prevPoint.x += dx * (1 - ratio) * 0.5;
-                        prevPoint.y += dy * (1 - ratio) * 0.5;
-                    }
-                    point.x = prevPoint.x + dx * ratio;
-                    point.y = prevPoint.y + dy * ratio;
-                }
-            }
-            ctx.lineTo(point.x, point.y);
+        // Use quadratic curves for smoother rope appearance
+        for (let i = 1; i < rope.points.length - 1; i++) {
+            const xc = (rope.points[i].x + rope.points[i + 1].x) / 2;
+            const yc = (rope.points[i].y + rope.points[i + 1].y) / 2;
+            ctx.quadraticCurveTo(rope.points[i].x, rope.points[i].y, xc, yc);
         }
+        // Draw the last segment
+        ctx.lineTo(rope.points[rope.points.length - 1].x, rope.points[rope.points.length - 1].y);
         ctx.stroke();
     });
     
