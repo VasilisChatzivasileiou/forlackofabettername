@@ -123,23 +123,63 @@ canvas.style.border = '5px dashed #D1D1D1';  // Changed from dotted to dashed
 
 // Function to update canvas size
 function updateCanvasSize() {
-    canvas.width = window.innerWidth;
+    // Use clientWidth instead of innerWidth to account for scrollbars
+    canvas.width = document.documentElement.clientWidth;
     canvas.height = 600;  // Keep fixed height
+}
+
+// Initialize platforms array first
+let platforms = [
+    { x: document.documentElement.clientWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
+    { x: document.documentElement.clientWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
+    { x: document.documentElement.clientWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
+];
+
+// Function to reset platform positions
+function resetPlatformPositions() {
+    platforms = [
+        { x: document.documentElement.clientWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
+        { x: document.documentElement.clientWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
+        { x: document.documentElement.clientWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
+    ];
 }
 
 // Initial size setup
 updateCanvasSize();
+resetPlatformPositions();
 
 // Handle window resizing
 window.addEventListener('resize', () => {
     const oldWidth = canvas.width;
     updateCanvasSize();
     
-    // Adjust platform positions to maintain relative spacing when width changes
-    const widthRatio = canvas.width / oldWidth;
-    platforms.forEach(platform => {
-        platform.x = platform.x * widthRatio;
-    });
+    // If game hasn't started, reset platform positions
+    if (!player.hasMoved) {
+        resetPlatformPositions();
+    } else {
+        // Adjust existing platform positions to maintain relative spacing
+        const widthRatio = canvas.width / oldWidth;
+        platforms.forEach(platform => {
+            platform.x = platform.x * widthRatio;
+        });
+    }
+
+    // Recenter player horizontally while maintaining relative position
+    const playerRelativePosition = player.x / oldWidth;
+    player.x = playerRelativePosition * canvas.width;
+
+    // If player hasn't moved yet (game hasn't started), keep them centered
+    if (!player.hasMoved) {
+        player.x = canvas.width/2 - player.width/2;
+    }
+
+    // Update multiplayer button position
+    multiplayerContainer.style.left = '50%';
+    
+    // Update modal position if it's visible
+    if (modal.style.display === 'block') {
+        modal.style.left = '50%';
+    }
 });
 
 document.body.appendChild(canvas);
@@ -186,20 +226,55 @@ const player = {
     counterOpacity: 0  // Track opacity for counters fade-in
 };
 
-let platforms = [
-    { x: window.innerWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
-    { x: window.innerWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
-    { x: window.innerWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
-];
-
 // Physics constants
 const gravity = 0.5;
 const friction = 0.8;
 
 // Input handling
 const keys = {};
-document.addEventListener('keydown', (e) => keys[e.key] = true);
-document.addEventListener('keyup', (e) => keys[e.key] = false);
+document.addEventListener('keydown', (e) => {
+    // Map both WASD and arrow keys to the same actions
+    switch (e.key.toLowerCase()) {
+        case 'w':
+        case 'arrowup':
+            keys['ArrowUp'] = true;
+            break;
+        case 'a':
+        case 'arrowleft':
+            keys['ArrowLeft'] = true;
+            break;
+        case 's':
+        case 'arrowdown':
+            keys['ArrowDown'] = true;
+            break;
+        case 'd':
+        case 'arrowright':
+            keys['ArrowRight'] = true;
+            break;
+    }
+});
+
+document.addEventListener('keyup', (e) => {
+    // Map both WASD and arrow keys to the same actions
+    switch (e.key.toLowerCase()) {
+        case 'w':
+        case 'arrowup':
+            keys['ArrowUp'] = false;
+            break;
+        case 'a':
+        case 'arrowleft':
+            keys['ArrowLeft'] = false;
+            break;
+        case 's':
+        case 'arrowdown':
+            keys['ArrowDown'] = false;
+            break;
+        case 'd':
+        case 'arrowright':
+            keys['ArrowRight'] = false;
+            break;
+    }
+});
 
 // Add after Game objects section
 const input = {
@@ -380,7 +455,7 @@ function resetGame() {
     }
 
     // Reset player position and physics
-    player.x = window.innerWidth/2 - 15;
+    player.x = canvas.width/2 - 15;
     player.y = 200;
     player.velocityY = 0;
     player.velocityX = 0;
@@ -414,9 +489,9 @@ function resetGame() {
 
     // Reset platforms with exactly 10px gaps from center
     platforms = [
-        { x: window.innerWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
-        { x: window.innerWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
-        { x: window.innerWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
+        { x: canvas.width/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
+        { x: canvas.width/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
+        { x: canvas.width/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
     ];
 
     // Reset highest platform tracker
@@ -783,7 +858,7 @@ function handleWebSocketMessage(data) {
                 playerId = data.playerId;
                 // Reset player position for second player
                 if (!isHost) {
-                    player.x = window.innerWidth/2 + 45;  // Spawn slightly to the right
+                    player.x = canvas.width/2 + 45;  // Spawn slightly to the right
                     player.y = 200;
                 } else {
                     // Close the modal if we're the host and second player joined
