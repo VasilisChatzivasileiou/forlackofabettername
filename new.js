@@ -858,6 +858,21 @@ function initializeWebSocket() {
     };
 }
 
+// Function to convert position from host to guest coordinates
+function convertHostToGuestPosition(x, hostWidth, guestWidth) {
+    const centerOffset = x - hostWidth/2;
+    const ratio = guestWidth / hostWidth;
+    return (guestWidth/2) + (centerOffset * ratio);
+}
+
+// Function to convert position from guest to host coordinates
+function convertGuestToHostPosition(x, guestWidth, hostWidth) {
+    const centerOffset = x - guestWidth/2;
+    const ratio = hostWidth / guestWidth;
+    return (hostWidth/2) + (centerOffset * ratio);
+}
+
+// Modify handleWebSocketMessage to use the conversion functions
 function handleWebSocketMessage(data) {
     switch (data.type) {
         case 'join':
@@ -875,9 +890,11 @@ function handleWebSocketMessage(data) {
                         type: 'requestInitialState',
                         screenWidth: canvas.width
                     }));
-                    player.x = canvas.width/2 + 45;  // Spawn slightly to the right
+                    // Spawn slightly to the right, using relative positioning
+                    player.x = convertHostToGuestPosition(canvas.width/2 + 45, data.hostScreenWidth, canvas.width);
                 } else {
-                    player.x = canvas.width/2 - 45;  // Spawn slightly to the left
+                    // Spawn slightly to the left
+                    player.x = canvas.width/2 - 45;
                 }
                 player.y = 200;
                 modal.style.display = 'none';
@@ -887,61 +904,59 @@ function handleWebSocketMessage(data) {
         case 'requestInitialState':
             if (isHost) {
                 const guestScreenWidth = data.screenWidth;
-                const widthRatio = guestScreenWidth / canvas.width;
                 
-                // Adjust platform positions for guest's screen width
+                // Convert platform positions to guest coordinates
                 const adjustedPlatforms = platforms.map(platform => ({
                     ...platform,
-                    x: (platform.x - canvas.width/2) * widthRatio + guestScreenWidth/2
+                    x: convertHostToGuestPosition(platform.x, canvas.width, guestScreenWidth)
                 }));
                 
                 ws.send(JSON.stringify({
                     type: 'initialState',
                     platforms: adjustedPlatforms,
-                    highestPlatform: highestPlatform
+                    highestPlatform: highestPlatform,
+                    hostScreenWidth: canvas.width
                 }));
-            }
-            break;
-            
-        case 'initialState':
-            if (!isHost) {
-                platforms = data.platforms;
-                highestPlatform = data.highestPlatform;
             }
             break;
             
         case 'platformUpdate':
             if (!isHost) {
-                // Adjust incoming platform positions based on screen width ratio
-                const widthRatio = canvas.width / data.hostScreenWidth;
+                // Convert incoming platform positions to guest coordinates
                 platforms = data.platforms.map(platform => ({
                     ...platform,
-                    x: (platform.x - data.hostScreenWidth/2) * widthRatio + canvas.width/2
+                    x: convertHostToGuestPosition(platform.x, data.hostScreenWidth, canvas.width)
                 }));
                 highestPlatform = data.highestPlatform;
             }
             break;
-        case 'readyState':
-            bothPlayersReady = data.bothPlayersReady;
-            console.log('Ready state updated:', bothPlayersReady);  // Debug log
-            break;
+
         case 'playerUpdate':
             if (otherPlayer === null) {
                 otherPlayer = {
-                    x: data.x,
+                    x: isHost ? 
+                        convertGuestToHostPosition(data.x, data.screenWidth, canvas.width) :
+                        convertHostToGuestPosition(data.x, data.hostScreenWidth, canvas.width),
                     y: data.y,
                     width: 30,
                     height: 30,
                     velocityX: data.velocityX,
                     velocityY: data.velocityY,
-                    label: isHost ? 'PLAYER 2' : 'PLAYER 1'  // Set opposite label
+                    label: isHost ? 'PLAYER 2' : 'PLAYER 1'
                 };
             } else {
-                otherPlayer.x = data.x;
+                otherPlayer.x = isHost ? 
+                    convertGuestToHostPosition(data.x, data.screenWidth, canvas.width) :
+                    convertHostToGuestPosition(data.x, data.hostScreenWidth, canvas.width);
                 otherPlayer.y = data.y;
                 otherPlayer.velocityX = data.velocityX;
                 otherPlayer.velocityY = data.velocityY;
             }
+            break;
+            
+        case 'readyState':
+            bothPlayersReady = data.bothPlayersReady;
+            console.log('Ready state updated:', bothPlayersReady);  // Debug log
             break;
         case 'playerDisconnect':
             isMultiplayer = false;
@@ -976,6 +991,7 @@ function handleWebSocketMessage(data) {
     }
 }
 
+// Modify sendPlayerUpdate to include screen width information
 function sendPlayerUpdate() {
     if (ws && ws.readyState === WebSocket.OPEN && isMultiplayer) {
         // Send player position and velocity
@@ -985,16 +1001,21 @@ function sendPlayerUpdate() {
             y: player.y,
             velocityX: player.velocityX,
             velocityY: player.velocityY,
-            hasMovedBefore: hasMovedInMultiplayer
+            hasMovedBefore: hasMovedInMultiplayer,
+            screenWidth: canvas.width,  // Add screen width for position conversion
+            hostScreenWidth: isHost ? canvas.width : undefined
         }));
 
-        // Always send rope state
+        // Always send rope state with converted coordinates
         ws.send(JSON.stringify({
             type: 'ropeUpdate',
             isHooked: player.isHooked,
             hookX: player.hookX,
             hookY: player.hookY,
-            ropeSegments: player.ropeSegments
+            ropeSegments: player.ropeSegments.map(segment => ({
+                ...segment,
+                x: isHost ? segment.x : convertHostToGuestPosition(segment.x, canvas.width, otherPlayer ? otherPlayer.screenWidth : canvas.width)
+            }))
         }));
         
         // Host sends platform updates with screen width
@@ -1005,11 +1026,6 @@ function sendPlayerUpdate() {
                 highestPlatform: highestPlatform,
                 hostScreenWidth: canvas.width
             }));
-        }
-
-        // Mark as moved if any movement key is pressed
-        if (!hasMovedInMultiplayer && (keys['ArrowLeft'] || keys['ArrowRight'] || keys['ArrowUp'])) {
-            hasMovedInMultiplayer = true;
         }
     }
 }
