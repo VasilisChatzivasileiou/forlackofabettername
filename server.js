@@ -86,6 +86,26 @@ wss.on('connection', (ws) => {
                     }
                 }
                 break;
+
+            case 'requestInitialState':
+                if (playerGame && games.has(playerGame)) {
+                    const game = games.get(playerGame);
+                    const host = ws === game.host ? game.guest : game.host;
+                    if (host) {
+                        host.send(message.toString());
+                    }
+                }
+                break;
+
+            case 'initialState':
+                if (playerGame && games.has(playerGame)) {
+                    const game = games.get(playerGame);
+                    const guest = ws === game.host ? game.guest : game.host;
+                    if (guest) {
+                        guest.send(message.toString());
+                    }
+                }
+                break;
         }
     });
 

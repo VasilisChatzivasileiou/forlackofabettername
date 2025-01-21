@@ -223,7 +223,8 @@ const player = {
     ropeSwingSpeed: 0,
     ropeSegments: [],  // Store rope segments for visualization
     activeRopes: [],    // Store all active ropes
-    counterOpacity: 0  // Track opacity for counters fade-in
+    counterOpacity: 0,  // Track opacity for counters fade-in
+    label: 'PLAYER 1'  // Default label, will be updated in multiplayer
 };
 
 // Physics constants
@@ -856,25 +857,68 @@ function handleWebSocketMessage(data) {
                 isMultiplayer = true;
                 isHost = data.isHost;
                 playerId = data.playerId;
-                // Reset player position for second player
+                
+                // Set player labels based on host status
+                player.label = isHost ? 'PLAYER 1' : 'PLAYER 2';
+                
                 if (!isHost) {
+                    // Request initial platform positions from host
+                    ws.send(JSON.stringify({
+                        type: 'requestInitialState'
+                    }));
                     player.x = canvas.width/2 + 45;  // Spawn slightly to the right
                     player.y = 200;
                 } else {
-                    // Close the modal if we're the host and second player joined
+                    // Send current platform positions to guest
+                    ws.send(JSON.stringify({
+                        type: 'initialState',
+                        platforms: platforms,
+                        highestPlatform: highestPlatform
+                    }));
                     modal.style.display = 'none';
                 }
                 console.log(isHost ? 'Game created' : 'Joined game');
             }
             break;
+            
+        // Add these new cases
+        case 'requestInitialState':
+            if (isHost) {
+                ws.send(JSON.stringify({
+                    type: 'initialState',
+                    platforms: platforms,
+                    highestPlatform: highestPlatform
+                }));
+            }
+            break;
+            
+        case 'initialState':
+            if (!isHost) {
+                platforms = data.platforms;
+                highestPlatform = data.highestPlatform;
+                // Adjust platform positions for guest's screen width
+                const widthRatio = canvas.width / document.documentElement.clientWidth;
+                platforms.forEach(platform => {
+                    platform.x = platform.x * widthRatio;
+                });
+            }
+            break;
+            
+        // Existing cases...
+        case 'platformUpdate':
+            if (!isHost) {
+                const oldPlatforms = [...platforms];
+                platforms = data.platforms;
+                // Adjust platform positions for guest's screen width
+                const widthRatio = canvas.width / document.documentElement.clientWidth;
+                platforms.forEach(platform => {
+                    platform.x = platform.x * widthRatio;
+                });
+            }
+            break;
         case 'readyState':
             bothPlayersReady = data.bothPlayersReady;
             console.log('Ready state updated:', bothPlayersReady);  // Debug log
-            break;
-        case 'platformUpdate':
-            if (!isHost) {  // Only non-host updates their platforms
-                platforms = data.platforms;
-            }
             break;
         case 'playerUpdate':
             if (otherPlayer === null) {
@@ -884,7 +928,8 @@ function handleWebSocketMessage(data) {
                     width: 30,
                     height: 30,
                     velocityX: data.velocityX,
-                    velocityY: data.velocityY
+                    velocityY: data.velocityY,
+                    label: isHost ? 'PLAYER 2' : 'PLAYER 1'  // Set opposite label
                 };
             } else {
                 otherPlayer.x = data.x;
@@ -951,22 +996,14 @@ function sendPlayerUpdate() {
         if (isHost) {
             ws.send(JSON.stringify({
                 type: 'platformUpdate',
-                platforms: platforms
+                platforms: platforms,
+                highestPlatform: highestPlatform
             }));
         }
 
         // Mark as moved if any movement key is pressed
         if (!hasMovedInMultiplayer && (keys['ArrowLeft'] || keys['ArrowRight'] || keys['ArrowUp'])) {
             hasMovedInMultiplayer = true;
-            // Send an immediate update to server about movement state
-            ws.send(JSON.stringify({
-                type: 'playerUpdate',
-                x: player.x,
-                y: player.y,
-                velocityX: player.velocityX,
-                velocityY: player.velocityY,
-                hasMovedBefore: true
-            }));
         }
     }
 }
@@ -1523,6 +1560,20 @@ function gameLoop() {
                 }
             }
         }
+
+        // Draw player label
+        ctx.save();
+        ctx.translate(0, camera.y);
+        ctx.fillStyle = '#D1D1D1';
+        ctx.font = 'bold 16px Humane';
+        ctx.textAlign = 'center';
+        ctx.fillText(player.label, player.x + player.width/2, player.y - 10);
+
+        // Draw other player label if they exist
+        if (otherPlayer) {
+            ctx.fillText(otherPlayer.label, otherPlayer.x + otherPlayer.width/2, otherPlayer.y - 10);
+        }
+        ctx.restore();
     }
 
     requestAnimationFrame(gameLoop);
