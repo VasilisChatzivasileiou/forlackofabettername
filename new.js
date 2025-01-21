@@ -128,32 +128,21 @@ function updateCanvasSize() {
     canvas.height = 600;  // Keep fixed height
 }
 
-// Function to create initial platforms
+// Function to create initial platform configuration
 function createInitialPlatforms() {
     return [
-        { x: canvas.width/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
-        { x: canvas.width/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
-        { x: canvas.width/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
+        { x: document.documentElement.clientWidth/2 - 160, y: 300, width: 100, height: 100, color: '#79312D', timer: null, countdown: 3 },
+        { x: document.documentElement.clientWidth/2 - 50, y: 300, width: 100, height: 100, color: '#273D3E', hookGiven: false },
+        { x: document.documentElement.clientWidth/2 + 60, y: 300, width: 100, height: 100, color: '#21282B' }
     ];
 }
 
-// Initialize platforms array
+// Initialize platforms array first
 let platforms = createInitialPlatforms();
 
 // Function to reset platform positions
 function resetPlatformPositions() {
     platforms = createInitialPlatforms();
-}
-
-// Draw function for player labels
-function drawPlayerLabel(playerObj, alpha = 1) {
-    ctx.font = 'bold 24px Humane';
-    ctx.letterSpacing = '2px';
-    ctx.textAlign = 'center';
-    ctx.fillStyle = '#D1D1D1';
-    ctx.globalAlpha = alpha;
-    ctx.fillText(playerObj.label, playerObj.x + playerObj.width/2, playerObj.y - 15);
-    ctx.globalAlpha = 1;
 }
 
 // Initial size setup
@@ -858,21 +847,6 @@ function initializeWebSocket() {
     };
 }
 
-// Function to convert position from host to guest coordinates
-function convertHostToGuestPosition(x, hostWidth, guestWidth) {
-    const centerOffset = x - hostWidth/2;
-    const ratio = guestWidth / hostWidth;
-    return (guestWidth/2) + (centerOffset * ratio);
-}
-
-// Function to convert position from guest to host coordinates
-function convertGuestToHostPosition(x, guestWidth, hostWidth) {
-    const centerOffset = x - guestWidth/2;
-    const ratio = hostWidth / guestWidth;
-    return (hostWidth/2) + (centerOffset * ratio);
-}
-
-// Modify handleWebSocketMessage to use the conversion functions
 function handleWebSocketMessage(data) {
     switch (data.type) {
         case 'join':
@@ -890,11 +864,9 @@ function handleWebSocketMessage(data) {
                         type: 'requestInitialState',
                         screenWidth: canvas.width
                     }));
-                    // Spawn slightly to the right, using relative positioning
-                    player.x = convertHostToGuestPosition(canvas.width/2 + 45, data.hostScreenWidth, canvas.width);
+                    player.x = canvas.width/2 + 45;  // Spawn slightly to the right
                 } else {
-                    // Spawn slightly to the left
-                    player.x = canvas.width/2 - 45;
+                    player.x = canvas.width/2 - 45;  // Spawn slightly to the left
                 }
                 player.y = 200;
                 modal.style.display = 'none';
@@ -904,59 +876,61 @@ function handleWebSocketMessage(data) {
         case 'requestInitialState':
             if (isHost) {
                 const guestScreenWidth = data.screenWidth;
+                const widthRatio = guestScreenWidth / canvas.width;
                 
-                // Convert platform positions to guest coordinates
+                // Adjust platform positions for guest's screen width
                 const adjustedPlatforms = platforms.map(platform => ({
                     ...platform,
-                    x: convertHostToGuestPosition(platform.x, canvas.width, guestScreenWidth)
+                    x: (platform.x - canvas.width/2) * widthRatio + guestScreenWidth/2
                 }));
                 
                 ws.send(JSON.stringify({
                     type: 'initialState',
                     platforms: adjustedPlatforms,
-                    highestPlatform: highestPlatform,
-                    hostScreenWidth: canvas.width
+                    highestPlatform: highestPlatform
                 }));
+            }
+            break;
+            
+        case 'initialState':
+            if (!isHost) {
+                platforms = data.platforms;
+                highestPlatform = data.highestPlatform;
             }
             break;
             
         case 'platformUpdate':
             if (!isHost) {
-                // Convert incoming platform positions to guest coordinates
+                // Adjust incoming platform positions based on screen width ratio
+                const widthRatio = canvas.width / data.hostScreenWidth;
                 platforms = data.platforms.map(platform => ({
                     ...platform,
-                    x: convertHostToGuestPosition(platform.x, data.hostScreenWidth, canvas.width)
+                    x: (platform.x - data.hostScreenWidth/2) * widthRatio + canvas.width/2
                 }));
                 highestPlatform = data.highestPlatform;
             }
             break;
-
+        case 'readyState':
+            bothPlayersReady = data.bothPlayersReady;
+            console.log('Ready state updated:', bothPlayersReady);  // Debug log
+            break;
         case 'playerUpdate':
             if (otherPlayer === null) {
                 otherPlayer = {
-                    x: isHost ? 
-                        convertGuestToHostPosition(data.x, data.screenWidth, canvas.width) :
-                        convertHostToGuestPosition(data.x, data.hostScreenWidth, canvas.width),
+                    x: data.x,
                     y: data.y,
                     width: 30,
                     height: 30,
                     velocityX: data.velocityX,
                     velocityY: data.velocityY,
-                    label: isHost ? 'PLAYER 2' : 'PLAYER 1'
+                    label: isHost ? 'PLAYER 2' : 'PLAYER 1'  // Set opposite label
                 };
             } else {
-                otherPlayer.x = isHost ? 
-                    convertGuestToHostPosition(data.x, data.screenWidth, canvas.width) :
-                    convertHostToGuestPosition(data.x, data.hostScreenWidth, canvas.width);
+                otherPlayer.x = data.x;
                 otherPlayer.y = data.y;
                 otherPlayer.velocityX = data.velocityX;
                 otherPlayer.velocityY = data.velocityY;
             }
-            break;
-            
-        case 'readyState':
-            bothPlayersReady = data.bothPlayersReady;
-            console.log('Ready state updated:', bothPlayersReady);  // Debug log
             break;
         case 'playerDisconnect':
             isMultiplayer = false;
@@ -991,7 +965,6 @@ function handleWebSocketMessage(data) {
     }
 }
 
-// Modify sendPlayerUpdate to include screen width information
 function sendPlayerUpdate() {
     if (ws && ws.readyState === WebSocket.OPEN && isMultiplayer) {
         // Send player position and velocity
@@ -1001,21 +974,16 @@ function sendPlayerUpdate() {
             y: player.y,
             velocityX: player.velocityX,
             velocityY: player.velocityY,
-            hasMovedBefore: hasMovedInMultiplayer,
-            screenWidth: canvas.width,  // Add screen width for position conversion
-            hostScreenWidth: isHost ? canvas.width : undefined
+            hasMovedBefore: hasMovedInMultiplayer
         }));
 
-        // Always send rope state with converted coordinates
+        // Always send rope state
         ws.send(JSON.stringify({
             type: 'ropeUpdate',
             isHooked: player.isHooked,
             hookX: player.hookX,
             hookY: player.hookY,
-            ropeSegments: player.ropeSegments.map(segment => ({
-                ...segment,
-                x: isHost ? segment.x : convertHostToGuestPosition(segment.x, canvas.width, otherPlayer ? otherPlayer.screenWidth : canvas.width)
-            }))
+            ropeSegments: player.ropeSegments
         }));
         
         // Host sends platform updates with screen width
@@ -1026,6 +994,11 @@ function sendPlayerUpdate() {
                 highestPlatform: highestPlatform,
                 hostScreenWidth: canvas.width
             }));
+        }
+
+        // Mark as moved if any movement key is pressed
+        if (!hasMovedInMultiplayer && (keys['ArrowLeft'] || keys['ArrowRight'] || keys['ArrowUp'])) {
+            hasMovedInMultiplayer = true;
         }
     }
 }
@@ -1049,6 +1022,18 @@ function joinGame(code) {
             code: code
         }));
     }
+}
+
+// Modify the drawing code to use a single function for player labels
+function drawPlayerLabel(x, y, label, opacity = 1) {
+    ctx.save();
+    ctx.fillStyle = '#D1D1D1';
+    ctx.font = 'bold 24px Humane';
+    ctx.letterSpacing = '2px';
+    ctx.textAlign = 'center';
+    ctx.globalAlpha = opacity;
+    ctx.fillText(label, x + player.width/2, y - 15);
+    ctx.restore();
 }
 
 // Game loop
@@ -1237,11 +1222,13 @@ function gameLoop() {
     if (isMultiplayer) {
         // Draw waiting message if not both players are ready
         if (!bothPlayersReady) {
+            ctx.save();
             ctx.fillStyle = '#D1D1D1';
             ctx.font = 'bold 32px Humane';
             ctx.letterSpacing = '2px';
             ctx.textAlign = 'center';
             ctx.fillText('WAITING FOR OTHER PLAYER', canvas.width/2, canvas.height/2);
+            ctx.restore();
         }
 
         // Draw other player and their rope if they exist
@@ -1266,43 +1253,45 @@ function gameLoop() {
             ctx.fillStyle = '#D1D1D1';
             ctx.globalAlpha = 0.8;
             ctx.fillRect(otherPlayer.x, otherPlayer.y, otherPlayer.width, otherPlayer.height);
-            drawPlayerLabel(otherPlayer, 0.8);
+            
+            // Draw other player label
+            drawPlayerLabel(otherPlayer.x, otherPlayer.y, otherPlayer.label, 0.8);
             ctx.globalAlpha = 1;
         }
+    }
 
-        // Draw current player's rope
-        if (player.isHooked) {
-            ctx.strokeStyle = '#FFFFFF';
-            ctx.lineWidth = 2;
-            ctx.beginPath();
+    // Draw current player's rope
+    if (player.isHooked) {
+        ctx.strokeStyle = '#FFFFFF';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        // Draw rope segments with slight curve
+        if (player.ropeSegments.length > 0) {
+            ctx.moveTo(player.x + player.width/2, player.y + player.height/2);
             
-            // Draw rope segments with slight curve
-            if (player.ropeSegments.length > 0) {
-                ctx.moveTo(player.x + player.width/2, player.y + player.height/2);
+            // Update rope segments
+            const dx = player.hookX - (player.x + player.width/2);
+            const dy = player.hookY - (player.y + player.height/2);
+            const slack = 0.1;  // Amount of rope sag
+            
+            for (let i = 0; i < player.ropeSegments.length; i++) {
+                const t = i / (player.ropeSegments.length - 1);
+                const sag = Math.sin(t * Math.PI) * slack * player.ropeLength;
                 
-                // Update rope segments
-                const dx = player.hookX - (player.x + player.width/2);
-                const dy = player.hookY - (player.y + player.height/2);
-                const slack = 0.1;  // Amount of rope sag
+                player.ropeSegments[i] = {
+                    x: player.x + player.width/2 + dx * t,
+                    y: player.y + player.height/2 + dy * t + sag
+                };
                 
-                for (let i = 0; i < player.ropeSegments.length; i++) {
-                    const t = i / (player.ropeSegments.length - 1);
-                    const sag = Math.sin(t * Math.PI) * slack * player.ropeLength;
-                    
-                    player.ropeSegments[i] = {
-                        x: player.x + player.width/2 + dx * t,
-                        y: player.y + player.height/2 + dy * t + sag
-                    };
-                    
-                    if (i === 0) {
-                        ctx.moveTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
-                    } else {
-                        ctx.lineTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
-                    }
+                if (i === 0) {
+                    ctx.moveTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
+                } else {
+                    ctx.lineTo(player.ropeSegments[i].x, player.ropeSegments[i].y);
                 }
             }
-            ctx.stroke();
         }
+        ctx.stroke();
     }
 
     // Draw main player
@@ -1318,7 +1307,7 @@ function gameLoop() {
     
     // Draw player label in multiplayer
     if (isMultiplayer) {
-        drawPlayerLabel(player);
+        drawPlayerLabel(player.x, player.y, player.label);
     }
 
     // Draw ghost players if we have previous runs and game has started
