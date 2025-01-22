@@ -384,7 +384,8 @@ function generateNewPlatforms() {
                 highestPlatform: highestPlatform - platformGap,
                 generated: false,
                 screenWidth: canvas.width,
-                playerY: player.y
+                playerY: player.y,
+                currentHighest: highestPlatform
             }));
             return;
         }
@@ -1072,10 +1073,8 @@ function handleWebSocketMessage(data) {
                     x: platform.x * widthRatio
                 }));
                 
-                // Update highestPlatform to match host's state
-                if (data.highestPlatform < highestPlatform) {
-                    highestPlatform = data.highestPlatform;
-                }
+                // Always update highestPlatform to match host's state
+                highestPlatform = data.highestPlatform;
             }
             break;
             
@@ -1132,21 +1131,10 @@ function handleWebSocketMessage(data) {
         case 'requestNewPlatforms':
             if (isHost) {
                 // Generate new platforms based on the requesting player's position
-                if (data.playerY < highestPlatform - 300) {
+                if (data.playerY < data.currentHighest - 300) {
                     // Update host's highestPlatform to match the request
-                    highestPlatform = data.highestPlatform + platformGap;
+                    highestPlatform = data.highestPlatform;
                     generateNewPlatforms();
-                    
-                    // Ensure the platforms are sent to the guest
-                    ws.send(JSON.stringify({
-                        type: 'platformUpdate',
-                        platforms: platforms.map(platform => ({
-                            ...platform,
-                            x: platform.x * (800 / canvas.width)
-                        })),
-                        highestPlatform: highestPlatform,
-                        generated: true
-                    }));
                 }
             }
             break;
