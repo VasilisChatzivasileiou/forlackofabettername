@@ -1756,39 +1756,62 @@ function gameLoop() {
     // Spawn new raindrops
     for (let i = 0; i < RAIN_DENSITY; i++) {
         const x = Math.random() * (canvas.width + 2400) - 1200;
-        // Spawn relative to camera position
-        const y = camera.y - 100;
+        // Spawn relative to camera view in world space
+        const y = -camera.y - 200;  // Convert to world space
         raindrops.push(new Raindrop(x, y));
     }
 
     // Update and draw raindrops
             ctx.save();
-    ctx.translate(0, camera.y);  // Apply camera transform for all rain drawing
     
     raindrops.forEach((drop, index) => {
+        // Check bounds in world space
         if (!drop.update() || 
-            drop.y > camera.y + canvas.height + 100 || 
+            drop.y > -camera.y + canvas.height + 100 || 
             drop.x < -1200 || 
             drop.x > canvas.width + 1200) {
             raindrops.splice(index, 1);
             return;
         }
 
-        // Check for platform collisions
+        // Check for platform collisions in world space
         for (const platform of platforms) {
+            const oldX = drop.x;
             const oldY = drop.y;
+            const nextX = oldX + Math.cos(drop.angle) * drop.speed;
             const nextY = oldY + Math.sin(drop.angle) * drop.speed;
             
+            // Check top collision
             if (oldY <= platform.y && nextY >= platform.y &&
                 drop.x >= platform.x && drop.x <= platform.x + platform.width) {
-                // Create a simple line splash effect
+                // Create top splash effect
+                ctx.save();
                 ctx.strokeStyle = '#D1D1D1';
                 ctx.globalAlpha = 0.4;
                 ctx.lineWidth = 1;
                 ctx.beginPath();
-                ctx.moveTo(drop.x - 2, platform.y);
-                ctx.lineTo(drop.x + 2, platform.y);
+                ctx.moveTo(drop.x - 3, platform.y + camera.y);
+                ctx.lineTo(drop.x + 3, platform.y + camera.y);
                 ctx.stroke();
+            ctx.restore();
+                
+                raindrops.splice(index, 1);
+                break;
+            }
+            
+            // Check left side collision
+            if (oldX <= platform.x && nextX >= platform.x &&
+                drop.y >= platform.y && drop.y <= platform.y + platform.height) {
+                // Create side splash effect - vertical line
+        ctx.save();
+                ctx.strokeStyle = '#D1D1D1';
+                ctx.globalAlpha = 0.4;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(platform.x, drop.y + camera.y - 3);
+                ctx.lineTo(platform.x, drop.y + camera.y + 3);
+                ctx.stroke();
+            ctx.restore();
                 
                 raindrops.splice(index, 1);
                 break;
@@ -1796,20 +1819,20 @@ function gameLoop() {
         }
         
         if (drop) {
-            // Draw raindrop
+            // Draw raindrop in screen space
             ctx.strokeStyle = '#D1D1D1';
             ctx.globalAlpha = 0.4;
             ctx.lineWidth = drop.width;
             ctx.beginPath();
-            ctx.moveTo(drop.x, drop.y);
+            ctx.moveTo(drop.x, drop.y + camera.y);
             ctx.lineTo(
                 drop.x - Math.cos(drop.angle) * drop.length,
-                drop.y - Math.sin(drop.angle) * drop.length
+                drop.y + camera.y - Math.sin(drop.angle) * drop.length
             );
             ctx.stroke();
         }
     });
-    
+        
         ctx.restore();
 
     // Update and draw rain splashes
