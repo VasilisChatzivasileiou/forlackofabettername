@@ -391,7 +391,7 @@ function generateNewPlatforms() {
             ws.send(JSON.stringify({
                 type: 'requestNewPlatforms',
                 playerY: playerHeight,
-                highestPlatform: highestPlatform - platformGap
+                highestPlatform: highestPlatform
             }));
             return;
         }
@@ -437,15 +437,22 @@ function generateNewPlatforms() {
             platform.y < lowestPlayerY + canvas.height * 2
         );
 
-        // If we're the host, notify the guest
+        // If we're the host, notify the guest only once after generation
         if (isMultiplayer && isHost) {
-            console.log('Host sending new platforms, old height:', oldHighest, 'new height:', highestPlatform); // Debug log
-            ws.send(JSON.stringify({
-                type: 'platformUpdate',
-                platforms: convertPlatforms(platforms, false),
-                highestPlatform: highestPlatform
-            }));
+            console.log('Host sending platform update after generation, new height:', highestPlatform); // Debug log
+            sendPlatformUpdate();
         }
+    }
+}
+
+// Helper function to send platform updates to avoid duplication
+function sendPlatformUpdate() {
+    if (ws && ws.readyState === WebSocket.OPEN && isMultiplayer && isHost) {
+        ws.send(JSON.stringify({
+            type: 'platformUpdate',
+            platforms: convertPlatforms(platforms, false),
+            highestPlatform: highestPlatform
+        }));
     }
 }
 
@@ -1123,8 +1130,6 @@ function handleWebSocketMessage(data) {
                 // Check if we need to generate new platforms based on the guest's position
                 if (data.playerY < highestPlatform - PLATFORM_GENERATION_HEIGHT) {
                     console.log('Host generating new platforms at guest request'); // Debug log
-                    // Force platform generation by updating highestPlatform
-                    highestPlatform = data.highestPlatform + platformGap;
                     generateNewPlatforms();
                 }
             }
@@ -1158,7 +1163,7 @@ function handleWebSocketMessage(data) {
     }
 }
 
-// Update sendPlayerUpdate to use the utility functions
+// Update sendPlayerUpdate to use the new helper function
 function sendPlayerUpdate() {
     if (ws && ws.readyState === WebSocket.OPEN && isMultiplayer) {
         ws.send(JSON.stringify({
@@ -1177,15 +1182,6 @@ function sendPlayerUpdate() {
                 points: convertPoints(rope.points, false)
             }))
         }));
-
-        if (isHost) {
-            ws.send(JSON.stringify({
-                type: 'platformUpdate',
-                platforms: convertPlatforms(platforms, false),
-                highestPlatform: highestPlatform,
-                standardWidth: STANDARD_WIDTH
-            }));
-        }
 
         if (!hasMovedInMultiplayer && (keys['ArrowLeft'] || keys['ArrowRight'] || keys['ArrowUp'])) {
             hasMovedInMultiplayer = true;
