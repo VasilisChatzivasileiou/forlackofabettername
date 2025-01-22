@@ -626,20 +626,264 @@ canvas.addEventListener('contextmenu', (e) => {
 
 // Add after particle system and before rope classes
 class Bird {
-    constructor() {
+    constructor(isSmall = false) {
+        this.isSmall = isSmall;
         this.direction = Math.random() < 0.5 ? -1 : 1;
         this.x = this.direction === 1 ? -20 : canvas.width + 20;
         const spawnHeightRange = 400;
         this.y = player.y - spawnHeightRange/2 + Math.random() * spawnHeightRange;
-        this.speed = 2 + Math.random() * 2;
+        this.speed = isSmall ? (1.5 + Math.random() * 1.5) : (2 + Math.random() * 2);
         this.wingOffset = 0;
-        this.wingSpeed = 0.1;
+        this.wingSpeed = isSmall ? 0.15 : 0.1;
         this.wingDirection = 1;
-        this.size = 6;
-        this.pushForce = 8;
+        this.size = isSmall ? 4 : 6;
+        this.pushForce = isSmall ? 6 : 8;
         this.bodyX = 0;
-        this.bounceForce = -8;
-        this.isBehindTitle = Math.random() < 0.4;  // 40% chance to be behind title
+        this.bounceForce = isSmall ? -6 : -8;
+        this.isBehindTitle = Math.random() < 0.4;
+        this.isPerched = false;
+        this.targetPlatform = null;
+        this.perchTimer = 0;
+        this.maxPerchTime = 3000 + Math.random() * 2000;
+        this.velocityY = 0;
+        this.isFleeingDiagonally = false;
+        this.fleeTimer = 0;
+        this.maxFleeTime = 30; // About 0.5 seconds at 60fps
+    }
+
+    findPerchTarget() {
+        // Only look for platforms if we're not already perched
+        if (!this.isPerched) {
+            for (const platform of platforms) {
+                // Skip platforms that:
+                // 1. The player is on
+                // 2. Are red and have disappeared (countdown <= 0)
+                // 3. Are red and have started their countdown
+                const playerOnPlatform = 
+                    player.x + player.width > platform.x &&
+                    player.x < platform.x + platform.width &&
+                    player.y + player.height >= platform.y &&
+                    player.y + player.height <= platform.y + platform.height;
+                
+                const isDisappearingPlatform = platform.color === '#79312D' && 
+                    (platform.countdown <= 0 || platform.timer !== null);
+                
+                if (!playerOnPlatform && !isDisappearingPlatform) {
+                    // Choose either left or right edge
+                    const edgeX = Math.random() < 0.5 ? platform.x : platform.x + platform.width;
+                    const distanceToEdge = Math.abs(this.x - edgeX);
+                    const heightDifference = Math.abs(this.y - (platform.y - this.size));
+                    
+                    // Only consider platforms that are ahead in our direction of travel
+                    const isAheadOfUs = (this.direction === 1 && edgeX > this.x) || 
+                                      (this.direction === -1 && edgeX < this.x);
+                    
+                    // If we're close enough to the platform and it's roughly at our height
+                    // and it's in the direction we're moving
+                    if (distanceToEdge < 100 && heightDifference < 30 && isAheadOfUs) {
+                        this.targetPlatform = platform;
+                        this.targetX = edgeX;
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
+    }
+
+    update() {
+        if (this.isPerched) {
+            // Check if player landed on the platform or if it's a red platform that started countdown
+            const playerLanded = 
+                player.x + player.width > this.targetPlatform.x &&
+                player.x < this.targetPlatform.x + this.targetPlatform.width &&
+                player.y + player.height >= this.targetPlatform.y &&
+                player.y + player.height <= this.targetPlatform.y + this.targetPlatform.height;
+
+            const platformDisappearing = 
+                this.targetPlatform.color === '#79312D' && 
+                (this.targetPlatform.countdown <= 0 || this.targetPlatform.timer !== null);
+
+            if (playerLanded || platformDisappearing) {
+                // Fly away from the player's position
+                const playerCenterX = player.x + player.width/2;
+                const birdCenterX = this.x + this.size;
+                // Set direction away from player
+                this.direction = playerCenterX > birdCenterX ? -1 : 1;
+                
+                this.isPerched = false;
+                this.velocityY = -4; // Stronger initial upward boost
+                this.perchTimer = 0;
+                this.targetPlatform = null;
+                this.isFleeingDiagonally = true;
+                this.fleeTimer = 0;
+            } else {
+                // Rest of perched behavior...
+                this.perchTimer += 16;
+                if (this.perchTimer >= this.maxPerchTime) {
+                    this.isPerched = false;
+                    this.direction = Math.random() < 0.5 ? -1 : 1;
+                    this.velocityY = -2;
+                    this.perchTimer = 0;
+                    this.targetPlatform = null;
+                }
+                this.wingOffset += (this.wingSpeed * 0.5) * this.wingDirection;
+            }
+        } else {
+            if (this.isFleeingDiagonally) {
+                // Update diagonal flight
+                this.fleeTimer++;
+                this.x += this.speed * 1.5 * this.direction; // Faster horizontal movement while fleeing
+                this.y += this.velocityY;
+                this.velocityY += 0.15; // Gradually reduce upward movement
+                
+                if (this.fleeTimer >= this.maxFleeTime) {
+                    this.isFleeingDiagonally = false;
+                    this.velocityY = 0;
+                }
+            } else if (this.isSmall && this.findPerchTarget()) {
+                // Move towards perch point with smoother movement
+                const dx = this.targetX - this.x;
+                const dy = (this.targetPlatform.y - this.size) - this.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                
+                if (dist < 2) {
+                    // Close enough to perch
+                    this.isPerched = true;
+                    this.x = this.targetX;
+                    this.y = this.targetPlatform.y - this.size;
+                } else {
+                    // Smoother approach to perch point
+                    const speed = Math.min(this.speed, dist * 0.2); // Slow down as we get closer
+                    this.x += (dx / dist) * speed;
+                    this.y += (dy / dist) * speed;
+                }
+            } else {
+                // Normal movement
+        this.x += this.speed * this.direction;
+            }
+            
+        this.bodyX = this.x + (this.direction === 1 ? this.size * 0.8 : -this.size * 2.8);
+        }
+        
+        // Rest of the method...
+        this.wingOffset += this.wingSpeed * this.wingDirection;
+        if (this.wingOffset > 0.5 || this.wingOffset < -0.5) {
+            this.wingDirection *= -1;
+        }
+
+        const collision = this.checkPlayerCollision();
+        if (collision) {
+            // Create feather particles at the collision point
+            const birdCenterX = this.x + (this.direction === 1 ? this.size * 1.5 : -this.size * 0.5);
+            const birdCenterY = this.y;
+            for (let i = 0; i < (this.isSmall ? 8 : 12); i++) {
+                featherParticles.push(new FeatherParticle(birdCenterX, birdCenterY, this.isSmall));
+            }
+
+            // Push player in the same direction as the bird
+            if (collision === 'top') {
+                player.velocityY = this.bounceForce;
+                player.velocityX = this.direction * Math.max(Math.abs(this.speed * 2), 4);
+                player.isJumping = true;
+                player.canJump = false;
+                player.canDoubleJump = true;
+            } else {
+                player.velocityX = this.direction * Math.max(Math.abs(this.pushForce * 2), 6);
+                player.velocityY = this.bounceForce * 0.7;
+                player.isJumping = true;
+            }
+            return false;  // Remove bird after collision
+        }
+
+        return this.x > -50 && 
+               this.x < canvas.width + 50 && 
+               Math.abs((this.y + camera.y) - (player.y + camera.y)) < canvas.height;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.fillStyle = this.isSmall ? '#FFA500' : '#F8DC6B';  // Orange for small birds, golden for regular
+        
+        if (this.isSmall && this.isPerched) {
+            // Draw sitting bird
+            // Body is more rounded and lower to the platform
+            ctx.fillRect(
+                this.x + (this.direction === 1 ? 0 : -this.size * 2), 
+                this.y,
+                this.size * 2,
+                this.size * 1.2
+            );
+            
+            // Head is tucked in closer to body
+            ctx.fillRect(
+                this.x + (this.direction === 1 ? this.size * 2 : -this.size * 2.8), 
+                this.y - this.size * 0.3,
+                this.size * 0.8,
+                this.size * 0.8
+            );
+            
+            // Beak
+            ctx.fillRect(
+                this.x + (this.direction === 1 ? this.size * 2.8 : -this.size * 3.2), 
+                this.y - this.size * 0.1,
+                this.size * 0.4,
+                this.size * 0.3
+            );
+            
+            // Folded wings (just a small bump on the side)
+            ctx.fillRect(
+                this.bodyX + this.size * 0.25,
+                this.y + this.size * 0.2,
+                this.size,
+                this.size * 0.4
+            );
+            
+        } else {
+            // Draw normal flying bird
+        // Draw tail feathers
+        ctx.fillRect(
+            this.x + (this.direction === 1 ? 0 : -this.size * 2), 
+            this.y - this.size/4,
+            this.size * 0.8,
+            this.size
+        );
+        
+        // Draw body (longer and more streamlined)
+        ctx.fillRect(
+            this.bodyX, 
+            this.y,
+            this.size * 2,
+            this.size
+        );
+        
+        // Draw head with beak
+        ctx.fillRect(
+            this.x + (this.direction === 1 ? this.size * 2.8 : -this.size * 3.6), 
+            this.y - this.size/3,
+            this.size * 0.8,
+            this.size * 0.8
+        );
+        
+        // Draw beak
+        ctx.fillRect(
+            this.x + (this.direction === 1 ? this.size * 3.6 : -this.size * 4), 
+            this.y - this.size/6,
+            this.size * 0.4,
+            this.size * 0.4
+        );
+        
+            // Draw wings with reduced animation range when perched
+            const wingOffsetMultiplier = this.isPerched ? 0.3 : 1;
+        ctx.fillRect(
+            this.bodyX + this.size * 0.25,
+                this.y - this.size * 0.5 + this.wingOffset * this.size * wingOffsetMultiplier,
+            this.size * 1.5,
+            this.size
+        );
+        }
+        
+        ctx.restore();
     }
 
     checkPlayerCollision() {
@@ -673,91 +917,6 @@ class Bird {
             }
         }
         return false;
-    }
-
-    update() {
-        this.x += this.speed * this.direction;
-        this.bodyX = this.x + (this.direction === 1 ? this.size * 0.8 : -this.size * 2.8);
-        
-        this.wingOffset += this.wingSpeed * this.wingDirection;
-        if (this.wingOffset > 0.5 || this.wingOffset < -0.5) {
-            this.wingDirection *= -1;
-        }
-
-        const collision = this.checkPlayerCollision();
-        if (collision) {
-            // Create feather particles at the collision point
-            const birdCenterX = this.x + (this.direction === 1 ? this.size * 1.5 : -this.size * 0.5);
-            const birdCenterY = this.y;
-            for (let i = 0; i < 12; i++) {
-                featherParticles.push(new FeatherParticle(birdCenterX, birdCenterY));
-            }
-
-            // Push player in the same direction as the bird
-            if (collision === 'top') {
-                player.velocityY = this.bounceForce;
-                player.velocityX = this.direction * Math.max(Math.abs(this.speed * 2), 4);
-                player.isJumping = true;
-                player.canJump = false;
-                player.canDoubleJump = true;
-            } else {
-                player.velocityX = this.direction * Math.max(Math.abs(this.pushForce * 2), 6);
-                player.velocityY = this.bounceForce * 0.7;
-                player.isJumping = true;
-            }
-            return false;  // Remove bird after collision
-        }
-
-        return this.x > -50 && 
-               this.x < canvas.width + 50 && 
-               Math.abs((this.y + camera.y) - (player.y + camera.y)) < canvas.height;
-    }
-
-    draw(ctx) {
-        ctx.save();
-        ctx.fillStyle = '#F8DC6B';  // New golden color for birds
-        
-        // Draw tail feathers
-        ctx.fillRect(
-            this.x + (this.direction === 1 ? 0 : -this.size * 2), 
-            this.y - this.size/4,
-            this.size * 0.8,
-            this.size
-        );
-        
-        // Draw body (longer and more streamlined)
-        ctx.fillRect(
-            this.bodyX, 
-            this.y,
-            this.size * 2,
-            this.size
-        );
-        
-        // Draw head with beak
-        ctx.fillRect(
-            this.x + (this.direction === 1 ? this.size * 2.8 : -this.size * 3.6), 
-            this.y - this.size/3,
-            this.size * 0.8,
-            this.size * 0.8
-        );
-        
-        // Draw beak
-        ctx.fillRect(
-            this.x + (this.direction === 1 ? this.size * 3.6 : -this.size * 4), 
-            this.y - this.size/6,
-            this.size * 0.4,
-            this.size * 0.4
-        );
-        
-        // Draw wings with reduced animation range and better connection
-        ctx.fillRect(
-            this.bodyX + this.size * 0.25,
-            this.y - this.size * 0.5 + this.wingOffset * this.size,  // Reduced vertical offset
-            this.size * 1.5,
-            this.size
-        );
-        
-        ctx.restore();
     }
 }
 
@@ -1189,16 +1348,17 @@ const rainSplashes = [];
 
 // Feather particle class for bird collisions
 class FeatherParticle {
-    constructor(x, y) {
+    constructor(x, y, isSmall = false) {
         this.x = x;
         this.y = y;
-        this.velocityX = (Math.random() - 0.5) * 4;  // Random horizontal velocity
-        this.velocityY = (Math.random() - 0.5) * 4;  // Random vertical velocity
-        this.rotation = Math.random() * Math.PI * 2;  // Random rotation
-        this.rotationSpeed = (Math.random() - 0.5) * 0.2;  // Random rotation speed
-        this.size = Math.random() * 3 + 2;  // Random size between 2-5 pixels
-        this.life = 1;  // Life value from 1 to 0
-        this.fadeSpeed = 0.02;  // How fast the feather fades
+        this.velocityX = (Math.random() - 0.5) * 4;
+        this.velocityY = (Math.random() - 0.5) * 4;
+        this.rotation = Math.random() * Math.PI * 2;
+        this.rotationSpeed = (Math.random() - 0.5) * 0.2;
+        this.size = (isSmall ? (Math.random() * 2 + 1.5) : (Math.random() * 3 + 2));
+        this.life = 1;
+        this.fadeSpeed = 0.02;
+        this.isSmall = isSmall;
     }
 
     update() {
@@ -1214,7 +1374,9 @@ class FeatherParticle {
         ctx.save();
         ctx.translate(this.x, this.y + camera.y);
         ctx.rotate(this.rotation);
-        ctx.fillStyle = `rgba(248, 220, 107, ${this.life})`;  // Changed to bird's golden color #F8DC6B
+        ctx.fillStyle = this.isSmall ? 
+            `rgba(255, 165, 0, ${this.life})` :  // Orange for small birds
+            `rgba(248, 220, 107, ${this.life})`; // Golden for regular birds
         
         // Draw a simple pixelated feather shape
         ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
@@ -1414,7 +1576,8 @@ function gameLoop() {
 
     // Update and spawn birds
     if (birds.length < maxBirds && Math.random() < birdSpawnChance) {
-        birds.push(new Bird());
+        const isSmall = Math.random() < 0.4; // 40% chance for small birds
+        birds.push(new Bird(isSmall));
     }
     
     // Update existing birds
