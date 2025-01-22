@@ -1115,7 +1115,12 @@ function handleWebSocketMessage(data) {
                     height: 30,
                     velocityX: data.velocityX,
                     velocityY: data.velocityY,
-                    label: isHost ? 'PLAYER 2' : 'PLAYER 1'
+                    label: isHost ? 'PLAYER 2' : 'PLAYER 1',
+                    isHooked: data.isHooked,
+                    hookX: data.hookX,
+                    hookY: data.hookY,
+                    ropeLength: data.ropeLength,
+                    activeRopes: []
                 };
             } else {
                 // Convert positions based on screen width ratio
@@ -1125,6 +1130,10 @@ function handleWebSocketMessage(data) {
                 otherPlayer.y = data.y;
                 otherPlayer.velocityX = data.velocityX * widthRatio;
                 otherPlayer.velocityY = data.velocityY;
+                otherPlayer.isHooked = data.isHooked;
+                otherPlayer.hookX = data.hookX * widthRatio;
+                otherPlayer.hookY = data.hookY;
+                otherPlayer.ropeLength = data.ropeLength * widthRatio;
             }
             break;
         case 'readyState':
@@ -1213,7 +1222,11 @@ function sendPlayerUpdate() {
             y: player.y,
             velocityX: player.velocityX * widthRatio,
             velocityY: player.velocityY,
-            hasMovedBefore: hasMovedInMultiplayer
+            hasMovedBefore: hasMovedInMultiplayer,
+            isHooked: player.isHooked,
+            hookX: player.isHooked ? player.hookX * widthRatio : 0,
+            hookY: player.isHooked ? player.hookY : 0,
+            ropeLength: player.isHooked ? player.ropeLength * widthRatio : 0
         }));
 
         if (isHost) {
