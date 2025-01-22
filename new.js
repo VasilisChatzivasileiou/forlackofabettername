@@ -374,18 +374,24 @@ function createLandingParticles(x, y, width, force) {
     }
 }
 
+// Add this constant at the top with other constants
+const PLATFORM_GENERATION_HEIGHT = 300;
+
 function generateNewPlatforms() {
-    const playerHeight = isMultiplayer ? Math.min(player.y, otherPlayer ? otherPlayer.y : player.y) : player.y;
-    if (playerHeight < highestPlatform - 300) {
-        // If we're not the host, request platform generation instead of generating
+    // For multiplayer, check both players' positions
+    const playerHeight = isMultiplayer ? 
+        Math.min(player.y, otherPlayer ? otherPlayer.y : player.y) : 
+        player.y;
+
+    // Check if we need to generate new platforms
+    if (playerHeight < highestPlatform - PLATFORM_GENERATION_HEIGHT) {
+        // If we're not the host, send request to host
         if (isMultiplayer && !isHost) {
+            console.log('Guest requesting new platforms at height:', playerHeight); // Debug log
             ws.send(JSON.stringify({
                 type: 'requestNewPlatforms',
-                highestPlatform: highestPlatform - platformGap,
-                generated: false,
-                screenWidth: canvas.width,
-                playerY: player.y,
-                currentHighest: highestPlatform
+                playerY: playerHeight,
+                highestPlatform: highestPlatform - platformGap
             }));
             return;
         }
@@ -396,15 +402,6 @@ function generateNewPlatforms() {
         const platformWidth = 100;
         const minGapBetweenPlatforms = 20;
 
-        function isValidPosition(x, existingPlatforms) {
-            for (const platform of existingPlatforms) {
-                if (Math.abs(x - platform.x) < platformWidth + minGapBetweenPlatforms) {
-                    return false;
-                }
-            }
-            return true;
-        }
-
         // Generate platforms with random positions
         for (let i = 0; i < numPlatforms; i++) {
             let x;
@@ -412,7 +409,7 @@ function generateNewPlatforms() {
             do {
                 x = Math.random() * (canvas.width - platformWidth);
                 attempts++;
-            } while (!isValidPosition(x, newPlatforms) && attempts < 10);
+            } while (!isValidPosition(x, newPlatforms, platformWidth, minGapBetweenPlatforms) && attempts < 10);
 
             const platform = {
                 x: x,
@@ -427,10 +424,12 @@ function generateNewPlatforms() {
             newPlatforms.push(platform);
         }
 
+        // Update platforms array and highestPlatform
         platforms.push(...newPlatforms);
+        const oldHighest = highestPlatform;
         highestPlatform -= platformGap;
 
-        // Remove platforms that are too far below
+        // Clean up old platforms
         const lowestPlayerY = isMultiplayer ? 
             Math.max(player.y, otherPlayer ? otherPlayer.y : player.y) : 
             player.y;
@@ -438,16 +437,23 @@ function generateNewPlatforms() {
             platform.y < lowestPlayerY + canvas.height * 2
         );
 
-        // If we're the host, send the new platforms to other players
+        // If we're the host, notify the guest
         if (isMultiplayer && isHost) {
+            console.log('Host sending new platforms, old height:', oldHighest, 'new height:', highestPlatform); // Debug log
             ws.send(JSON.stringify({
                 type: 'platformUpdate',
                 platforms: convertPlatforms(platforms, false),
-                highestPlatform: highestPlatform,
-                generated: true
+                highestPlatform: highestPlatform
             }));
         }
     }
+}
+
+// Helper function for platform position validation
+function isValidPosition(x, existingPlatforms, platformWidth, minGap) {
+    return !existingPlatforms.some(platform => 
+        Math.abs(x - platform.x) < platformWidth + minGap
+    );
 }
 
 // Add after physics constants
@@ -1031,8 +1037,8 @@ function handleWebSocketMessage(data) {
             
         case 'platformUpdate':
             if (!isHost) {
+                console.log('Guest received platform update, new height:', data.highestPlatform); // Debug log
                 platforms = convertPlatforms(data.platforms);
-                // Always update highestPlatform to match host's state
                 highestPlatform = data.highestPlatform;
             }
             break;
@@ -1113,10 +1119,12 @@ function handleWebSocketMessage(data) {
 
         case 'requestNewPlatforms':
             if (isHost) {
-                // Generate new platforms based on the requesting player's position
-                if (data.playerY < data.currentHighest - 300) {
-                    // Update host's highestPlatform to match the request
-                    highestPlatform = data.highestPlatform;
+                console.log('Host received platform request, player height:', data.playerY); // Debug log
+                // Check if we need to generate new platforms based on the guest's position
+                if (data.playerY < highestPlatform - PLATFORM_GENERATION_HEIGHT) {
+                    console.log('Host generating new platforms at guest request'); // Debug log
+                    // Force platform generation by updating highestPlatform
+                    highestPlatform = data.highestPlatform + platformGap;
                     generateNewPlatforms();
                 }
             }
