@@ -605,24 +605,51 @@ canvas.addEventListener('mousedown', (e) => {
             });
         }
         
-        player.activeRopes.push({
+        const newRope = {
             points: points,
             segmentLength: segmentLength,
-            totalLength: totalLength,  // Store the total rope length
-            windOffset: Math.random() * Math.PI * 2  // Random wind phase offset
-        });
+            totalLength: totalLength,
+            windOffset: Math.random() * Math.PI * 2
+        };
+        
+        player.activeRopes.push(newRope);
+        
+        // Send rope release update to other player
+        if (isMultiplayer) {
+            ws.send(JSON.stringify({
+                type: 'ropeUpdate',
+                action: 'release',
+                rope: {
+                    points: points.map(p => ({ x: p.x * (800 / canvas.width), y: p.y, isAnchored: p.isAnchored })),
+                    segmentLength: segmentLength * (800 / canvas.width),
+                    totalLength: totalLength * (800 / canvas.width),
+                    windOffset: newRope.windOffset
+                }
+            }));
+        }
         
         player.isHooked = false;
     } else {
         // Create new rope
         player.hookX = clickX;
         player.hookY = clickY;
-            player.isHooked = true;
+        player.isHooked = true;
         
         // Calculate initial rope length
         const dx = clickX - (player.x + player.width/2);
         const dy = clickY - (player.y + player.height/2);
-            player.ropeLength = Math.sqrt(dx * dx + dy * dy);
+        player.ropeLength = Math.sqrt(dx * dx + dy * dy);
+        
+        // Send rope creation update to other player
+        if (isMultiplayer) {
+            ws.send(JSON.stringify({
+                type: 'ropeUpdate',
+                action: 'create',
+                hookX: clickX * (800 / canvas.width),
+                hookY: clickY,
+                ropeLength: player.ropeLength * (800 / canvas.width)
+            }));
+        }
     }
 });
 
@@ -1142,6 +1169,34 @@ function handleWebSocketMessage(data) {
                     platform.timer = data.timer;
                     platform.countdown = data.countdown;
                 }
+            }
+            break;
+        case 'ropeUpdate':
+            if (data.action === 'create') {
+                // Other player created a new rope
+                const widthRatio = canvas.width / 800;
+                otherPlayer.isHooked = true;
+                otherPlayer.hookX = data.hookX * widthRatio;
+                otherPlayer.hookY = data.hookY;
+                otherPlayer.ropeLength = data.ropeLength * widthRatio;
+            } else if (data.action === 'release') {
+                // Other player released their rope
+                const widthRatio = canvas.width / 800;
+                otherPlayer.isHooked = false;
+                
+                // Add the released rope to otherPlayerRopes
+                const adjustedRope = {
+                    ...data.rope,
+                    points: data.rope.points.map(p => ({
+                        ...p,
+                        x: p.x * widthRatio,
+                        velocityX: 0,
+                        velocityY: 0
+                    })),
+                    segmentLength: data.rope.segmentLength * widthRatio,
+                    totalLength: data.rope.totalLength * widthRatio
+                };
+                otherPlayerRopes.push(adjustedRope);
             }
             break;
     }
