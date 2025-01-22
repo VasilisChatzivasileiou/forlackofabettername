@@ -542,8 +542,6 @@ function resetGame() {
     player.hooks = 0;
     player.counterOpacity = 0;
     player.isHooked = false;  // Release any held rope
-    player.activeRopes = [];  // Clear all released ropes
-    otherPlayerRopes = [];    // Clear other player's ropes
 
     // Reset camera
     camera.y = camera.verticalOffset;
@@ -1867,28 +1865,6 @@ function gameLoop() {
         });
         
         ctx.restore();
-    }
-
-    // Draw main player
-    ctx.fillStyle = '#D1D1D1';
-    if (player.squashAmount > 0) {
-        player.squashAmount = Math.max(0, player.squashAmount - player.squashSpeed);
-        player.height = player.normalHeight - player.squashAmount;
-    } else {
-        player.height = player.normalHeight;
-    }
-    ctx.fillRect(player.x, player.y, player.width, player.height);
-
-    // Draw player label in multiplayer
-    if (isMultiplayer) {
-        drawPlayerLabel(player.x, player.y, player.label);
-        
-        // Draw other player if they exist and both players are ready
-        if (otherPlayer && bothPlayersReady) {
-            ctx.fillStyle = '#D1D1D1';
-            ctx.fillRect(otherPlayer.x, otherPlayer.y, otherPlayer.width, otherPlayer.height);
-            drawPlayerLabel(otherPlayer.x, otherPlayer.y, otherPlayer.label);
-        }
     }
 
     // Draw ghost players if we have previous runs and game has started
