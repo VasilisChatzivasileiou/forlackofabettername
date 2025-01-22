@@ -384,7 +384,7 @@ function generateNewPlatforms() {
                 highestPlatform: highestPlatform - platformGap,
                 generated: false,
                 screenWidth: canvas.width,
-                playerY: player.y  // Add player's Y position
+                playerY: player.y
             }));
             return;
         }
@@ -1071,7 +1071,11 @@ function handleWebSocketMessage(data) {
                     ...platform,
                     x: platform.x * widthRatio
                 }));
-                highestPlatform = data.highestPlatform;
+                
+                // Update highestPlatform to match host's state
+                if (data.highestPlatform < highestPlatform) {
+                    highestPlatform = data.highestPlatform;
+                }
             }
             break;
             
@@ -1109,10 +1113,22 @@ function handleWebSocketMessage(data) {
             break;
         case 'requestNewPlatforms':
             if (isHost) {
-                // Update highestPlatform based on the requesting player's position
+                // Generate new platforms based on the requesting player's position
                 if (data.playerY < highestPlatform - 300) {
-                    highestPlatform = data.highestPlatform;
+                    // Update host's highestPlatform to match the request
+                    highestPlatform = data.highestPlatform + platformGap;
                     generateNewPlatforms();
+                    
+                    // Ensure the platforms are sent to the guest
+                    ws.send(JSON.stringify({
+                        type: 'platformUpdate',
+                        platforms: platforms.map(platform => ({
+                            ...platform,
+                            x: platform.x * (800 / canvas.width)
+                        })),
+                        highestPlatform: highestPlatform,
+                        generated: true
+                    }));
                 }
             }
             break;
