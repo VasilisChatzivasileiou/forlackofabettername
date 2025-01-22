@@ -1068,7 +1068,7 @@ const superJumpParticles = [];
 class Raindrop {
     constructor(x, y) {
         this.x = x;
-        this.y = y;  // This will now be relative to camera
+        this.y = y;
         this.speed = 7 + Math.random() * 5;
         this.length = 10 + Math.random() * 5;
         this.angle = Math.PI * 0.25;
@@ -1078,8 +1078,7 @@ class Raindrop {
     update() {
         this.x += Math.cos(this.angle) * this.speed;
         this.y += Math.sin(this.angle) * this.speed;
-        // Check bounds relative to camera position
-        return this.y < camera.y + canvas.height + 100;
+        return true;
     }
 
     draw(ctx) {
@@ -1097,11 +1096,48 @@ class Raindrop {
         ctx.stroke();
         ctx.restore();
     }
+
+    checkCollision(platform) {
+        const nextY = this.y + Math.sin(this.angle) * this.speed;
+        return this.y <= platform.y && nextY >= platform.y &&
+               this.x >= platform.x && this.x <= platform.x + platform.width;
+    }
 }
 
 // Add to existing variables
 const raindrops = [];
 const RAIN_DENSITY = 12; // Increased density to compensate for wider angle
+
+// Add after Raindrop class
+class RainSplash {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.radius = 1;
+        this.maxRadius = 3;
+        this.opacity = 0.4;
+        this.fadeSpeed = 0.05;
+    }
+
+    update() {
+        this.radius += 0.3;
+        this.opacity -= this.fadeSpeed;
+        return this.opacity > 0;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.strokeStyle = '#D1D1D1';
+        ctx.globalAlpha = this.opacity;
+        ctx.beginPath();
+        ctx.arc(this.x, this.y - camera.y, this.radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+}
+
+// Add to existing variables
+const rainSplashes = [];
 
 // Game loop
 function gameLoop() {
@@ -1726,6 +1762,9 @@ function gameLoop() {
     }
 
     // Update and draw raindrops
+            ctx.save();
+    ctx.translate(0, camera.y);  // Apply camera transform for all rain drawing
+    
     raindrops.forEach((drop, index) => {
         if (!drop.update() || 
             drop.y > camera.y + canvas.height + 100 || 
@@ -1734,7 +1773,52 @@ function gameLoop() {
             raindrops.splice(index, 1);
             return;
         }
-        drop.draw(ctx);
+
+        // Check for platform collisions
+        for (const platform of platforms) {
+            const oldY = drop.y;
+            const nextY = oldY + Math.sin(drop.angle) * drop.speed;
+            
+            if (oldY <= platform.y && nextY >= platform.y &&
+                drop.x >= platform.x && drop.x <= platform.x + platform.width) {
+                // Create a simple line splash effect
+                ctx.strokeStyle = '#D1D1D1';
+                ctx.globalAlpha = 0.4;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(drop.x - 2, platform.y);
+                ctx.lineTo(drop.x + 2, platform.y);
+                ctx.stroke();
+                
+                raindrops.splice(index, 1);
+                break;
+            }
+        }
+        
+        if (drop) {
+            // Draw raindrop
+            ctx.strokeStyle = '#D1D1D1';
+            ctx.globalAlpha = 0.4;
+            ctx.lineWidth = drop.width;
+            ctx.beginPath();
+            ctx.moveTo(drop.x, drop.y);
+            ctx.lineTo(
+                drop.x - Math.cos(drop.angle) * drop.length,
+                drop.y - Math.sin(drop.angle) * drop.length
+            );
+            ctx.stroke();
+        }
+    });
+    
+        ctx.restore();
+
+    // Update and draw rain splashes
+    rainSplashes.forEach((splash, index) => {
+        if (!splash.update()) {
+            rainSplashes.splice(index, 1);
+            return;
+        }
+        splash.draw(ctx);
     });
 
     requestAnimationFrame(gameLoop);
