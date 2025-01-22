@@ -463,6 +463,46 @@ function resetGame() {
         ghostReplayFrames = allPreviousRuns.map(() => 0);  // Reset all ghost frames
     }
     
+    // If player was holding a rope when they died, convert it to a released rope
+    if (player.isHooked) {
+        const numSegments = 10;
+        const centerX = player.x + player.width/2;
+        const centerY = player.y + player.height/2;
+        const dx = centerX - player.hookX;
+        const dy = centerY - player.hookY;
+        const totalLength = Math.sqrt(dx * dx + dy * dy);
+        const segmentLength = totalLength / numSegments;
+        
+        const points = [];
+        // Add hook point (stays fixed)
+        points.push({
+            x: player.hookX,
+            y: player.hookY,
+            velocityY: 0,
+            velocityX: 0,
+            isAnchored: true
+        });
+        
+        // Add points along the rope's length
+        for (let i = 1; i <= numSegments; i++) {
+            const t = i / numSegments;
+            points.push({
+                x: player.hookX + dx * t,
+                y: player.hookY + dy * t,
+                velocityY: 0,
+                velocityX: 0,
+                isAnchored: false
+            });
+        }
+        
+        player.activeRopes.push({
+            points: points,
+            segmentLength: segmentLength,
+            totalLength: totalLength,
+            windOffset: Math.random() * Math.PI * 2
+        });
+    }
+    
     // Reset current run tracking
     currentRunPositions = [];
 
@@ -485,7 +525,7 @@ function resetGame() {
     player.onSpeedPlatform = false;
     player.jumpMomentum = 0;
     player.highestY = 200;
-    player.hasMoved = false;  // Reset movement tracker
+    player.hasMoved = false;
     player.doubleJumps = 0;
     player.canDoubleJump = false;
     player.jumpKeyReleased = true;
@@ -493,7 +533,8 @@ function resetGame() {
     player.squashAmount = 0;
     player.height = player.normalHeight;
     player.hooks = 0;
-    player.counterOpacity = 0;  // Reset counter opacity to 0
+    player.counterOpacity = 0;
+    player.isHooked = false;  // Release any held rope
 
     // Reset camera
     camera.y = camera.verticalOffset;
@@ -1791,7 +1832,7 @@ function gameLoop() {
                 platform.x, platform.y, platform.x + platform.width, platform.y
             )) {
                 // Create top splash effect
-                ctx.save();
+            ctx.save();
                 ctx.strokeStyle = '#D1D1D1';
                 ctx.globalAlpha = 0.4;
                 ctx.lineWidth = 1;
@@ -1799,7 +1840,7 @@ function gameLoop() {
                 ctx.moveTo(drop.x - 3, platform.y + camera.y);
                 ctx.lineTo(drop.x + 3, platform.y + camera.y);
                 ctx.stroke();
-                ctx.restore();
+            ctx.restore();
                 
                 raindrops.splice(index, 1);
                 break;
@@ -1811,7 +1852,7 @@ function gameLoop() {
                 platform.x, platform.y, platform.x, platform.y + platform.height
             )) {
                 // Create side splash effect - vertical line
-                ctx.save();
+            ctx.save();
                 ctx.strokeStyle = '#D1D1D1';
                 ctx.globalAlpha = 0.4;
                 ctx.lineWidth = 1;
@@ -1819,7 +1860,7 @@ function gameLoop() {
                 ctx.moveTo(platform.x, drop.y + camera.y - 3);
                 ctx.lineTo(platform.x, drop.y + camera.y + 3);
                 ctx.stroke();
-                ctx.restore();
+            ctx.restore();
                 
                 raindrops.splice(index, 1);
                 break;
