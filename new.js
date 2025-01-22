@@ -1673,6 +1673,13 @@ function gameLoop() {
     // Draw player label in multiplayer
     if (isMultiplayer) {
         drawPlayerLabel(player.x, player.y, player.label);
+        
+        // Draw other player if they exist and both players are ready
+        if (otherPlayer && bothPlayersReady) {
+            ctx.fillStyle = '#D1D1D1';
+            ctx.fillRect(otherPlayer.x, otherPlayer.y, otherPlayer.width, otherPlayer.height);
+            drawPlayerLabel(otherPlayer.x, otherPlayer.y, otherPlayer.label);
+        }
     }
 
     // Draw ghost players if we have previous runs and game has started
