@@ -686,17 +686,24 @@ class Bird {
 
         const collision = this.checkPlayerCollision();
         if (collision) {
+            // Create feather particles at the collision point
+            const birdCenterX = this.x + (this.direction === 1 ? this.size * 1.5 : -this.size * 0.5);
+            const birdCenterY = this.y;
+            for (let i = 0; i < 12; i++) {
+                featherParticles.push(new FeatherParticle(birdCenterX, birdCenterY));
+            }
+
             // Push player in the same direction as the bird
             if (collision === 'top') {
                 player.velocityY = this.bounceForce;
-                player.velocityX = this.direction * Math.max(Math.abs(this.speed * 2), 4);  // Same direction as bird
-                player.isJumping = true;  // Set player to jumping state to prevent ground friction
+                player.velocityX = this.direction * Math.max(Math.abs(this.speed * 2), 4);
+                player.isJumping = true;
                 player.canJump = false;
                 player.canDoubleJump = true;
             } else {
-                player.velocityX = this.direction * Math.max(Math.abs(this.pushForce * 2), 6);  // Same direction as bird
+                player.velocityX = this.direction * Math.max(Math.abs(this.pushForce * 2), 6);
                 player.velocityY = this.bounceForce * 0.7;
-                player.isJumping = true;  // Set player to jumping state to prevent ground friction
+                player.isJumping = true;
             }
             return false;  // Remove bird after collision
         }
@@ -1179,6 +1186,46 @@ class RainSplash {
 
 // Add to existing variables
 const rainSplashes = [];
+
+// Feather particle class for bird collisions
+class FeatherParticle {
+    constructor(x, y) {
+        this.x = x;
+        this.y = y;
+        this.velocityX = (Math.random() - 0.5) * 4;  // Random horizontal velocity
+        this.velocityY = (Math.random() - 0.5) * 4;  // Random vertical velocity
+        this.rotation = Math.random() * Math.PI * 2;  // Random rotation
+        this.rotationSpeed = (Math.random() - 0.5) * 0.2;  // Random rotation speed
+        this.size = Math.random() * 3 + 2;  // Random size between 2-5 pixels
+        this.life = 1;  // Life value from 1 to 0
+        this.fadeSpeed = 0.02;  // How fast the feather fades
+    }
+
+    update() {
+        this.x += this.velocityX;
+        this.y += this.velocityY;
+        this.velocityY += 0.05;  // Slight gravity effect
+        this.rotation += this.rotationSpeed;
+        this.life -= this.fadeSpeed;
+        return this.life > 0;
+    }
+
+    draw(ctx) {
+        ctx.save();
+        ctx.translate(this.x, this.y + camera.y);
+        ctx.rotate(this.rotation);
+        ctx.fillStyle = `rgba(248, 220, 107, ${this.life})`;  // Changed to bird's golden color #F8DC6B
+        
+        // Draw a simple pixelated feather shape
+        ctx.fillRect(-this.size/2, -this.size/2, this.size, this.size);
+        ctx.fillRect(-this.size/4, -this.size, this.size/2, this.size/2);
+        
+        ctx.restore();
+    }
+}
+
+// Add featherParticles array to track active feather particles
+let featherParticles = [];
 
 // Game loop
 function gameLoop() {
@@ -1923,6 +1970,13 @@ function gameLoop() {
             return;
         }
         splash.draw(ctx);
+    });
+
+    // Update and draw feather particles
+    featherParticles = featherParticles.filter(feather => {
+        if (!feather.update()) return false;
+        feather.draw(ctx);
+        return true;
     });
 
     requestAnimationFrame(gameLoop);
