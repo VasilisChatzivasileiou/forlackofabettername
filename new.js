@@ -542,6 +542,8 @@ function resetGame() {
     player.hooks = 0;
     player.counterOpacity = 0;
     player.isHooked = false;  // Release any held rope
+    player.activeRopes = [];  // Clear all released ropes
+    otherPlayerRopes = [];    // Clear other player's ropes
 
     // Reset camera
     camera.y = camera.verticalOffset;
@@ -1143,6 +1145,7 @@ function handleWebSocketMessage(data) {
         case 'playerDisconnect':
             isMultiplayer = false;
             otherPlayer = null;
+            otherPlayerRopes = [];  // Clear other player's ropes
             bothPlayersReady = false;
             hasMovedInMultiplayer = false;
             alert('Other player disconnected');
@@ -1467,6 +1470,9 @@ class FeatherParticle {
 // Add featherParticles array to track active feather particles
 let featherParticles = [];
 
+// Add after otherPlayer initialization
+let otherPlayerRopes = [];  // Store other player's released ropes
+
 // Game loop
 function gameLoop() {
     // Update camera position
@@ -1666,37 +1672,7 @@ function gameLoop() {
         }
     }
 
-    // Draw multiplayer elements
-    if (isMultiplayer) {
-        sendPlayerUpdate();
-
-        // Handle player collision before drawing
-        if (otherPlayer && bothPlayersReady) {
-            if (checkPlayerCollision(player, otherPlayer)) {
-                // Calculate collision response
-                const dx = (player.x + player.width/2) - (otherPlayer.x + otherPlayer.width/2);
-                const dy = (player.y + player.height/2) - (otherPlayer.y + otherPlayer.height/2);
-                
-                // Normalize the direction
-                const length = Math.sqrt(dx * dx + dy * dy);
-                const normalX = dx / length;
-                const normalY = dy / length;
-                
-                // Apply bounce effect
-                const bounceForce = 8;
-                player.velocityX = normalX * bounceForce;
-                player.velocityY = normalY * bounceForce;
-                
-                // Move players apart to prevent sticking
-                const overlap = (player.width + otherPlayer.width)/2 - Math.abs(dx);
-                if (overlap > 0) {
-                    player.x += normalX * overlap/2;
-                }
-            }
-        }
-    }
-
-    // Draw rope before drawing the player
+    // Draw main player's ropes
     if (player.isHooked) {
         ctx.save();
         ctx.strokeStyle = '#D1D1D1';
@@ -1734,6 +1710,161 @@ function gameLoop() {
         }
         ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
         ctx.stroke();
+        
+        ctx.restore();
+    }
+
+    // Draw main player's released ropes
+    ctx.save();
+    ctx.strokeStyle = '#D1D1D1';
+    ctx.lineWidth = 2;
+    
+    player.activeRopes.forEach((rope, index) => {
+        const time = Date.now() / 1000;
+        const windStrength = 0.02;
+        
+        // Multiple iterations to maintain rope length
+        for (let iteration = 0; iteration < 5; iteration++) {
+            for (let i = 1; i < rope.points.length; i++) {
+                const point = rope.points[i];
+                const prevPoint = rope.points[i - 1];
+                
+                if (!point.isAnchored) {
+                    if (iteration === 0) {
+                        point.velocityY += gravity * 0.5;
+                        point.y += point.velocityY;
+                        
+                        const windPhase = time + rope.windOffset;
+                        const windEffect = Math.sin(windPhase * 0.8) * windStrength * (i / rope.points.length) * 3;
+                        const secondaryWind = Math.cos(windPhase * 1.2 + i * 0.2) * windStrength * (i / rope.points.length);
+                        point.velocityX = (point.velocityX || 0) * 0.98 + windEffect + secondaryWind;
+                        point.x += point.velocityX;
+                    }
+                    
+                    const dx = point.x - prevPoint.x;
+                    const dy = point.y - prevPoint.y;
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance !== rope.segmentLength) {
+                        const ratio = rope.segmentLength / distance;
+                        point.x = prevPoint.x + dx * ratio;
+                        point.y = prevPoint.y + dy * ratio;
+                    }
+                }
+            }
+        }
+        
+        // Draw the rope
+        ctx.beginPath();
+        ctx.moveTo(rope.points[0].x, rope.points[0].y);
+        
+        for (let i = 1; i < rope.points.length - 1; i++) {
+            const xc = (rope.points[i].x + rope.points[i + 1].x) / 2;
+            const yc = (rope.points[i].y + rope.points[i + 1].y) / 2;
+            ctx.quadraticCurveTo(rope.points[i].x, rope.points[i].y, xc, yc);
+        }
+        ctx.lineTo(rope.points[rope.points.length - 1].x, rope.points[rope.points.length - 1].y);
+        ctx.stroke();
+    });
+    
+    ctx.restore();
+
+    // Draw multiplayer elements
+    if (isMultiplayer && otherPlayer && bothPlayersReady) {
+        // Draw other player
+        ctx.fillStyle = '#D1D1D1';
+        ctx.fillRect(otherPlayer.x, otherPlayer.y, otherPlayer.width, otherPlayer.height);
+        drawPlayerLabel(otherPlayer.x, otherPlayer.y, otherPlayer.label);
+
+        // Draw other player's active rope
+        if (otherPlayer.isHooked) {
+            ctx.save();
+            ctx.strokeStyle = '#D1D1D1';
+            ctx.lineWidth = 2;
+            
+            const numSegments = 10;
+            const points = [];
+            
+            for (let i = 0; i <= numSegments; i++) {
+                const t = i / numSegments;
+                const centerX = otherPlayer.x + otherPlayer.width/2;
+                const centerY = otherPlayer.y + otherPlayer.height/2;
+                
+                const swayAmount = Math.sin(t * Math.PI) * (Math.abs(otherPlayer.velocityX) * 0.5);
+                const dx = (otherPlayer.hookX - centerX) * t;
+                const dy = (otherPlayer.hookY - centerY) * t;
+                
+                points.push({
+                    x: centerX + dx + swayAmount,
+                    y: centerY + dy + Math.sin(Date.now() / 500 + t * Math.PI) * 2
+                });
+            }
+            
+            ctx.beginPath();
+            ctx.moveTo(points[0].x, points[0].y);
+            
+            for (let i = 1; i < points.length - 1; i++) {
+                const xc = (points[i].x + points[i + 1].x) / 2;
+                const yc = (points[i].y + points[i + 1].y) / 2;
+                ctx.quadraticCurveTo(points[i].x, points[i].y, xc, yc);
+            }
+            ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+            ctx.stroke();
+            
+            ctx.restore();
+        }
+
+        // Draw other player's released ropes
+        ctx.save();
+        ctx.strokeStyle = '#D1D1D1';
+        ctx.lineWidth = 2;
+        
+        otherPlayerRopes.forEach((rope, index) => {
+            const time = Date.now() / 1000;
+            const windStrength = 0.02;
+            
+            // Multiple iterations to maintain rope length
+            for (let iteration = 0; iteration < 5; iteration++) {
+                for (let i = 1; i < rope.points.length; i++) {
+                    const point = rope.points[i];
+                    const prevPoint = rope.points[i - 1];
+                    
+                    if (!point.isAnchored) {
+                        if (iteration === 0) {
+                            point.velocityY += gravity * 0.5;
+                            point.y += point.velocityY;
+                            
+                            const windPhase = time + rope.windOffset;
+                            const windEffect = Math.sin(windPhase * 0.8) * windStrength * (i / rope.points.length) * 3;
+                            const secondaryWind = Math.cos(windPhase * 1.2 + i * 0.2) * windStrength * (i / rope.points.length);
+                            point.velocityX = (point.velocityX || 0) * 0.98 + windEffect + secondaryWind;
+                            point.x += point.velocityX;
+                        }
+                        
+                        const dx = point.x - prevPoint.x;
+                        const dy = point.y - prevPoint.y;
+                        const distance = Math.sqrt(dx * dx + dy * dy);
+                        
+                        if (distance !== rope.segmentLength) {
+                            const ratio = rope.segmentLength / distance;
+                            point.x = prevPoint.x + dx * ratio;
+                            point.y = prevPoint.y + dy * ratio;
+                        }
+                    }
+                }
+            }
+            
+            ctx.beginPath();
+            ctx.moveTo(rope.points[0].x, rope.points[0].y);
+            
+            for (let i = 1; i < rope.points.length - 1; i++) {
+                const xc = (rope.points[i].x + rope.points[i + 1].x) / 2;
+                const yc = (rope.points[i].y + rope.points[i + 1].y) / 2;
+                ctx.quadraticCurveTo(rope.points[i].x, rope.points[i].y, xc, yc);
+            }
+            ctx.lineTo(rope.points[rope.points.length - 1].x, rope.points[rope.points.length - 1].y);
+            ctx.stroke();
+        });
         
         ctx.restore();
     }
