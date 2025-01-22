@@ -1781,9 +1781,15 @@ function gameLoop() {
             const nextX = oldX + Math.cos(drop.angle) * drop.speed;
             const nextY = oldY + Math.sin(drop.angle) * drop.speed;
             
-            // Check top collision
-            if (oldY <= platform.y && nextY >= platform.y &&
-                drop.x >= platform.x && drop.x <= platform.x + platform.width) {
+            // Check if the raindrop's path intersects with the platform
+            const rainEndX = drop.x - Math.cos(drop.angle) * drop.length;
+            const rainEndY = drop.y - Math.sin(drop.angle) * drop.length;
+            
+            // Check top edge collision
+            if (lineIntersectsLine(
+                oldX, oldY, nextX, nextY,
+                platform.x, platform.y, platform.x + platform.width, platform.y
+            )) {
                 // Create top splash effect
                 ctx.save();
                 ctx.strokeStyle = '#D1D1D1';
@@ -1793,17 +1799,19 @@ function gameLoop() {
                 ctx.moveTo(drop.x - 3, platform.y + camera.y);
                 ctx.lineTo(drop.x + 3, platform.y + camera.y);
                 ctx.stroke();
-            ctx.restore();
+                ctx.restore();
                 
                 raindrops.splice(index, 1);
                 break;
             }
             
-            // Check left side collision
-            if (oldX <= platform.x && nextX >= platform.x &&
-                drop.y >= platform.y && drop.y <= platform.y + platform.height) {
+            // Check left edge collision
+            if (lineIntersectsLine(
+                oldX, oldY, nextX, nextY,
+                platform.x, platform.y, platform.x, platform.y + platform.height
+            )) {
                 // Create side splash effect - vertical line
-        ctx.save();
+                ctx.save();
                 ctx.strokeStyle = '#D1D1D1';
                 ctx.globalAlpha = 0.4;
                 ctx.lineWidth = 1;
@@ -1811,7 +1819,39 @@ function gameLoop() {
                 ctx.moveTo(platform.x, drop.y + camera.y - 3);
                 ctx.lineTo(platform.x, drop.y + camera.y + 3);
                 ctx.stroke();
-            ctx.restore();
+                ctx.restore();
+                
+                raindrops.splice(index, 1);
+                break;
+            }
+            
+            // Additional check for the entire raindrop line segment
+            if (lineIntersectsLine(
+                drop.x, drop.y, rainEndX, rainEndY,
+                platform.x, platform.y, platform.x + platform.width, platform.y
+            ) || lineIntersectsLine(
+                drop.x, drop.y, rainEndX, rainEndY,
+                platform.x, platform.y, platform.x, platform.y + platform.height
+            )) {
+                // Create appropriate splash effect based on which edge was hit
+                const hitTop = Math.abs(drop.y - platform.y) < Math.abs(drop.x - platform.x);
+                
+                ctx.save();
+                ctx.strokeStyle = '#D1D1D1';
+                ctx.globalAlpha = 0.4;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                
+                if (hitTop) {
+                    ctx.moveTo(drop.x - 3, platform.y + camera.y);
+                    ctx.lineTo(drop.x + 3, platform.y + camera.y);
+                } else {
+                    ctx.moveTo(platform.x, drop.y + camera.y - 3);
+                    ctx.lineTo(platform.x, drop.y + camera.y + 3);
+                }
+                
+                ctx.stroke();
+                ctx.restore();
                 
                 raindrops.splice(index, 1);
                 break;
