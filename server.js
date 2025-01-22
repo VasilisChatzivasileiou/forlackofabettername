@@ -77,6 +77,7 @@ wss.on('connection', (ws) => {
             case 'playerUpdate':
             case 'platformUpdate':
             case 'ropeUpdate':
+            case 'requestNewPlatforms':
                 // Forward updates to other player if in a game
                 if (playerGame && games.has(playerGame)) {
                     const game = games.get(playerGame);

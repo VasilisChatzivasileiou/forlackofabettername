@@ -383,7 +383,8 @@ function generateNewPlatforms() {
                 type: 'requestNewPlatforms',
                 highestPlatform: highestPlatform - platformGap,
                 generated: false,
-                screenWidth: canvas.width
+                screenWidth: canvas.width,
+                playerY: player.y  // Add player's Y position
             }));
             return;
         }
@@ -1108,21 +1109,10 @@ function handleWebSocketMessage(data) {
             break;
         case 'requestNewPlatforms':
             if (isHost) {
-                // Only generate new platforms if we haven't generated any at this height yet
-                if (data.highestPlatform < highestPlatform && !data.generated) {
+                // Update highestPlatform based on the requesting player's position
+                if (data.playerY < highestPlatform - 300) {
                     highestPlatform = data.highestPlatform;
                     generateNewPlatforms();
-                    
-                    // Send the updated platforms to all players with a flag indicating they were generated
-                    ws.send(JSON.stringify({
-                        type: 'platformUpdate',
-                        platforms: platforms.map(platform => ({
-                            ...platform,
-                            x: platform.x * (800 / canvas.width) // Convert to standard width
-                        })),
-                        highestPlatform: highestPlatform,
-                        generated: true
-                    }));
                 }
             }
             break;
