@@ -382,7 +382,8 @@ function generateNewPlatforms() {
             ws.send(JSON.stringify({
                 type: 'requestNewPlatforms',
                 highestPlatform: highestPlatform - platformGap,
-                generated: false
+                generated: false,
+                screenWidth: canvas.width
             }));
             return;
         }
@@ -404,24 +405,24 @@ function generateNewPlatforms() {
 
         // Generate platforms with random positions
         for (let i = 0; i < numPlatforms; i++) {
-        let x;
+            let x;
             let attempts = 0;
             do {
                 x = Math.random() * (canvas.width - platformWidth);
                 attempts++;
             } while (!isValidPosition(x, newPlatforms) && attempts < 10);
 
-                    const platform = {
-                        x: x,
-                        y: highestPlatform - platformGap,
+            const platform = {
+                x: x,
+                y: highestPlatform - platformGap,
                 width: platformWidth,
                 height: platformWidth,
                 color: i === 0 ? '#21282B' : platformColors[Math.floor(Math.random() * 2)],
                 timer: i === 0 ? null : null,
                 countdown: i === 0 ? null : 3,
                 hookGiven: false
-                    };
-                    newPlatforms.push(platform);
+            };
+            newPlatforms.push(platform);
         }
 
         platforms.push(...newPlatforms);
@@ -435,11 +436,16 @@ function generateNewPlatforms() {
             platform.y < lowestPlayerY + canvas.height * 2
         );
 
-        // If we're not the host, request platform sync
-        if (isMultiplayer && !isHost) {
+        // If we're the host, send the new platforms to other players
+        if (isMultiplayer && isHost) {
             ws.send(JSON.stringify({
-                type: 'requestNewPlatforms',
-                highestPlatform: highestPlatform
+                type: 'platformUpdate',
+                platforms: platforms.map(platform => ({
+                    ...platform,
+                    x: platform.x * (800 / canvas.width) // Convert to standard width
+                })),
+                highestPlatform: highestPlatform,
+                generated: true
             }));
         }
     }
@@ -1059,14 +1065,12 @@ function handleWebSocketMessage(data) {
                 const standardWidth = 800;
                 const widthRatio = canvas.width / standardWidth;
                 
-                // Only update if we haven't already generated platforms at this height
-                if (data.generated || data.highestPlatform > highestPlatform) {
+                // Always update platforms when receiving a platform update
                 platforms = data.platforms.map(platform => ({
                     ...platform,
-                        x: platform.x * widthRatio
+                    x: platform.x * widthRatio
                 }));
                 highestPlatform = data.highestPlatform;
-                }
             }
             break;
             
