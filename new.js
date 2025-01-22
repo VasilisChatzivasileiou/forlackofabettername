@@ -390,7 +390,7 @@ function generateNewPlatforms() {
             return;
         }
 
-        // Rest of the platform generation code stays the same
+        // Generate new platforms
         const numPlatforms = Math.floor(Math.random() * 2) + 2;
         const newPlatforms = [];
         const platformWidth = 100;
@@ -442,10 +442,7 @@ function generateNewPlatforms() {
         if (isMultiplayer && isHost) {
             ws.send(JSON.stringify({
                 type: 'platformUpdate',
-                platforms: platforms.map(platform => ({
-                    ...platform,
-                    x: platform.x * (800 / canvas.width) // Convert to standard width
-                })),
+                platforms: convertPlatforms(platforms, false),
                 highestPlatform: highestPlatform,
                 generated: true
             }));
@@ -992,8 +989,88 @@ function initializeWebSocket() {
     };
 }
 
+// Add these utility functions at the top of the file
+const STANDARD_WIDTH = 800;
+
+function getWidthRatio() {
+    return canvas.width / STANDARD_WIDTH;
+}
+
+function convertToLocalX(standardX) {
+    return standardX * getWidthRatio();
+}
+
+function convertToStandardX(localX) {
+    return localX * (STANDARD_WIDTH / canvas.width);
+}
+
+function convertPlatforms(platforms, toLocal = true) {
+    return platforms.map(platform => ({
+        ...platform,
+        x: toLocal ? convertToLocalX(platform.x) : convertToStandardX(platform.x)
+    }));
+}
+
+function convertPoints(points, toLocal = true) {
+    return points.map(point => ({
+        ...point,
+        x: toLocal ? convertToLocalX(point.x) : convertToStandardX(point.x)
+    }));
+}
+
+// Update the handleWebSocketMessage function to remove duplicates and fix platform generation
 function handleWebSocketMessage(data) {
     switch (data.type) {
+        case 'initialState':
+            if (!isHost) {
+                platforms = convertPlatforms(data.platforms);
+                player.x = convertToLocalX(player.x);
+                highestPlatform = data.highestPlatform;
+            }
+            break;
+            
+        case 'platformUpdate':
+            if (!isHost) {
+                platforms = convertPlatforms(data.platforms);
+                // Always update highestPlatform to match host's state
+                highestPlatform = data.highestPlatform;
+            }
+            break;
+            
+        case 'playerUpdate':
+            if (otherPlayer === null) {
+                otherPlayer = {
+                    x: convertToLocalX(data.x),
+                    y: data.y,
+                    width: 30,
+                    height: 30,
+                    velocityX: convertToLocalX(data.velocityX),
+                    velocityY: data.velocityY,
+                    label: isHost ? 'PLAYER 2' : 'PLAYER 1',
+                    isHooked: false,
+                    hookX: 0,
+                    hookY: 0,
+                    ropeLength: 0,
+                    activeRopes: []
+                };
+            } else {
+                otherPlayer.x = convertToLocalX(data.x);
+                otherPlayer.y = data.y;
+                otherPlayer.velocityX = convertToLocalX(data.velocityX);
+                otherPlayer.velocityY = data.velocityY;
+                otherPlayer.isHooked = data.isHooked;
+                otherPlayer.hookX = convertToLocalX(data.hookX);
+                otherPlayer.hookY = data.hookY;
+                otherPlayer.ropeLength = convertToLocalX(data.ropeLength);
+                if (data.activeRopes) {
+                    otherPlayer.activeRopes = data.activeRopes.map(rope => ({
+                        ...rope,
+                        points: convertPoints(rope.points)
+                    }));
+                }
+            }
+            break;
+
         case 'join':
             if (data.success) {
                 isMultiplayer = true;
@@ -1017,117 +1094,23 @@ function handleWebSocketMessage(data) {
                 } else {
                     // Host moves slightly to the left after centering
                     player.x -= 45;
-                    // Keep current platform positions for host
                 }
                 player.y = 200;
-                    modal.style.display = 'none';
+                modal.style.display = 'none';
             }
             break;
             
         case 'requestInitialState':
             if (isHost) {
-                // Convert current platform positions to standard width
-                const standardWidth = 800;
-                const widthRatio = standardWidth / canvas.width;
-                
-                const standardPlatforms = platforms.map(platform => ({
-                    ...platform,
-                    x: platform.x * widthRatio
-                }));
-                
                 ws.send(JSON.stringify({
                     type: 'initialState',
-                    platforms: standardPlatforms,
+                    platforms: convertPlatforms(platforms, false),
                     highestPlatform: highestPlatform,
-                    standardWidth: standardWidth
+                    standardWidth: STANDARD_WIDTH
                 }));
             }
             break;
-            
-        case 'initialState':
-            if (!isHost) {
-                const standardWidth = data.standardWidth;
-                const widthRatio = canvas.width / standardWidth;
-                
-                // Adjust platform positions based on width ratio
-                platforms = data.platforms.map(platform => ({
-                    ...platform,
-                    x: platform.x * widthRatio
-                }));
-                
-                // Adjust player position based on width ratio
-                player.x = player.x * widthRatio;
-                
-                highestPlatform = data.highestPlatform;
-            }
-            break;
-            
-        case 'platformUpdate':
-            if (!isHost) {
-                const standardWidth = 800;
-                const widthRatio = canvas.width / standardWidth;
-                
-                // Always update platforms when receiving a platform update
-                platforms = data.platforms.map(platform => ({
-                    ...platform,
-                    x: platform.x * widthRatio
-                }));
-                
-                // Always update highestPlatform to match host's state
-                highestPlatform = data.highestPlatform;
-            }
-            break;
-            
-        case 'playerUpdate':
-            if (otherPlayer === null) {
-                otherPlayer = {
-                    x: data.x,
-                    y: data.y,
-                    width: 30,
-                    height: 30,
-                    velocityX: data.velocityX,
-                    velocityY: data.velocityY,
-                    label: isHost ? 'PLAYER 2' : 'PLAYER 1',
-                    isHooked: false,
-                    hookX: 0,
-                    hookY: 0,
-                    ropeLength: 0,
-                    activeRopes: []
-                };
-            } else {
-                // Convert positions based on screen width ratio
-                const standardWidth = 800;
-                const widthRatio = canvas.width / standardWidth;
-                otherPlayer.x = data.x * widthRatio;
-                otherPlayer.y = data.y;
-                otherPlayer.velocityX = data.velocityX * widthRatio;
-                otherPlayer.velocityY = data.velocityY;
-                otherPlayer.isHooked = data.isHooked;
-                otherPlayer.hookX = data.hookX * widthRatio;
-                otherPlayer.hookY = data.hookY;
-                otherPlayer.ropeLength = data.ropeLength * widthRatio;
-                if (data.activeRopes) {
-                    otherPlayer.activeRopes = data.activeRopes.map(rope => ({
-                        ...rope,
-                        points: rope.points.map(point => ({
-                            ...point,
-                            x: point.x * widthRatio
-                        }))
-                    }));
-                }
-            }
-            break;
-        case 'readyState':
-            bothPlayersReady = data.bothPlayersReady;
-            console.log('Ready state updated:', bothPlayersReady);  // Debug log
-            break;
-        case 'playerDisconnect':
-            isMultiplayer = false;
-            otherPlayer = null;
-            bothPlayersReady = false;
-            hasMovedInMultiplayer = false;
-            alert('Other player disconnected');
-            break;
+
         case 'requestNewPlatforms':
             if (isHost) {
                 // Generate new platforms based on the requesting player's position
@@ -1138,6 +1121,20 @@ function handleWebSocketMessage(data) {
                 }
             }
             break;
+
+        case 'readyState':
+            bothPlayersReady = data.bothPlayersReady;
+            console.log('Ready state updated:', bothPlayersReady);
+            break;
+
+        case 'playerDisconnect':
+            isMultiplayer = false;
+            otherPlayer = null;
+            bothPlayersReady = false;
+            hasMovedInMultiplayer = false;
+            alert('Other player disconnected');
+            break;
+
         case 'platformTimer':
             if (!isHost) {
                 const platform = platforms.find(p => 
@@ -1153,42 +1150,32 @@ function handleWebSocketMessage(data) {
     }
 }
 
+// Update sendPlayerUpdate to use the utility functions
 function sendPlayerUpdate() {
     if (ws && ws.readyState === WebSocket.OPEN && isMultiplayer) {
-        const standardWidth = 800;
-        const widthRatio = standardWidth / canvas.width;
-        
         ws.send(JSON.stringify({
             type: 'playerUpdate',
-            x: player.x * widthRatio,
+            x: convertToStandardX(player.x),
             y: player.y,
-            velocityX: player.velocityX * widthRatio,
+            velocityX: convertToStandardX(player.velocityX),
             velocityY: player.velocityY,
             hasMovedBefore: hasMovedInMultiplayer,
             isHooked: player.isHooked,
-            hookX: player.hookX * widthRatio,
+            hookX: convertToStandardX(player.hookX),
             hookY: player.hookY,
-            ropeLength: player.ropeLength * widthRatio,
+            ropeLength: convertToStandardX(player.ropeLength),
             activeRopes: player.activeRopes.map(rope => ({
                 ...rope,
-                points: rope.points.map(point => ({
-                    ...point,
-                    x: point.x * widthRatio
-                }))
+                points: convertPoints(rope.points, false)
             }))
         }));
 
         if (isHost) {
-            const standardPlatforms = platforms.map(platform => ({
-                ...platform,
-                x: platform.x * widthRatio
-            }));
-            
             ws.send(JSON.stringify({
                 type: 'platformUpdate',
-                platforms: standardPlatforms,
+                platforms: convertPlatforms(platforms, false),
                 highestPlatform: highestPlatform,
-                standardWidth: standardWidth
+                standardWidth: STANDARD_WIDTH
             }));
         }
 
